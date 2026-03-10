@@ -20,10 +20,10 @@ class MainActivity : AppCompatActivity() {
         connectButton = findViewById(R.id.connectButton)
         statusText = findViewById(R.id.statusText)
 
-        statusText.text = if (BuildConfig.HAS_LIBBOX_AAR) {
-            "Estado: listo (engine libbox integrado)"
+        statusText.text = if (BuildConfig.HAS_SINGBOX_BINARIES) {
+            "Estado: listo (binario sing-box integrado)"
         } else {
-            "Estado: falta app/libs/libbox.aar (ejecuta scripts/workflow)"
+            "Estado: falta binario en assets/sing-box/<abi>/sing-box"
         }
 
         connectButton.setOnClickListener {

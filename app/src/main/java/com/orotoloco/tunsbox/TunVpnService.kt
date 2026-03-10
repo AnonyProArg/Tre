@@ -2,6 +2,7 @@ package com.orotoloco.tunsbox
 
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.File
@@ -24,7 +25,7 @@ class TunVpnService : VpnService() {
         if (tunInterface != null) return
 
         val configFile = copyAsset("singbox-config.json")
-        validateConfigWithLibbox(configFile)
+        val localBinary = ensureBinaryForCurrentAbi()
 
         tunInterface = Builder()
             .setSession("TunSingboxVless")
@@ -34,34 +35,36 @@ class TunVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .establish()
 
-        val binary = File(filesDir, "sing-box")
-        if (!binary.exists()) {
-            Log.e(TAG, "No se encontró filesDir/sing-box. Integra el motor oficial vía AAR + servicio completo.")
+        if (!localBinary.exists()) {
+            Log.e(TAG, "No se encontró binario sing-box para ABI del dispositivo")
             return
         }
 
         singBoxProcess = ProcessBuilder(
-            binary.absolutePath,
+            localBinary.absolutePath,
             "run",
             "-c",
             configFile.absolutePath
         )
             .redirectErrorStream(true)
             .start()
+
+        Log.i(TAG, "sing-box arrancado con ${localBinary.absolutePath}")
     }
 
-    private fun validateConfigWithLibbox(configFile: File) {
-        if (!BuildConfig.HAS_LIBBOX_AAR) return
-        try {
-            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
-            val versionMethod = libboxClass.getMethod("version")
-            val checkConfigMethod = libboxClass.getMethod("checkConfig", String::class.java)
-            val version = versionMethod.invoke(null) as String
-            checkConfigMethod.invoke(null, configFile.readText())
-            Log.i(TAG, "libbox activo. versión=$version; config VLESS válida")
-        } catch (t: Throwable) {
-            Log.e(TAG, "libbox AAR presente, pero no se pudo validar config", t)
+    private fun ensureBinaryForCurrentAbi(): File {
+        val target = File(filesDir, "sing-box")
+        val abi = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "x86_64" }
+        if (abi == null) return target
+
+        val assetPath = "sing-box/$abi/sing-box"
+        assets.open(assetPath).use { input ->
+            FileOutputStream(target).use { output ->
+                input.copyTo(output)
+            }
         }
+        target.setExecutable(true)
+        return target
     }
 
     private fun disconnect() {

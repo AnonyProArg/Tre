@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build official libbox AAR directly from sing-box upstream source.
-# No need to clone sing-box-for-android app repository.
-# Requirements: git, go, java17, ANDROID_NDK_HOME, Android SDK cmdline-tools.
+# Legacy filename kept to avoid breaking callers.
+# New behavior: fetch/build sing-box executable binaries (not AAR).
 
-SING_BOX_REF="${SING_BOX_REF:-dev-next}"
-WORKDIR="${WORKDIR:-$(pwd)/.tmp/upstream-build}"
-OUTDIR="${OUTDIR:-$(pwd)/third_party/libbox}"
+SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.6}"
+OUTDIR="${OUTDIR:-$(pwd)/third_party/sing-box}"
 
-rm -rf "$WORKDIR"
-mkdir -p "$WORKDIR" "$OUTDIR"
+mkdir -p "$OUTDIR"
 
-pushd "$WORKDIR" >/dev/null
-  git clone --depth 1 --branch "$SING_BOX_REF" https://github.com/SagerNet/sing-box.git
+fetch_one() {
+  local arch="$1" abi="$2"
+  local url="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-android-${arch}.tar.gz"
+  local tmp
+  tmp="$(mktemp -d)"
+  curl -fL "$url" -o "$tmp/singbox.tgz"
+  tar -xzf "$tmp/singbox.tgz" -C "$tmp"
+  mkdir -p "$OUTDIR/$abi"
+  cp "$tmp/sing-box-${SINGBOX_VERSION}-android-${arch}/sing-box" "$OUTDIR/$abi/sing-box"
+  chmod +x "$OUTDIR/$abi/sing-box"
+  rm -rf "$tmp"
+  echo "Prepared $abi binary"
+}
 
-  pushd sing-box >/dev/null
-    make lib_install
-    make lib_android
+fetch_one arm64 arm64-v8a
+fetch_one amd64 x86_64
 
-    test -f libbox.aar
-    test -f libbox-legacy.aar
-
-    cp libbox.aar "$OUTDIR/libbox.aar"
-    cp libbox-legacy.aar "$OUTDIR/libbox-legacy.aar"
-  popd >/dev/null
-popd >/dev/null
-
-echo "AARs generated in: $OUTDIR"
+echo "Binaries generated in: $OUTDIR"

@@ -6,9 +6,9 @@ local.properties
 **/build/
 *.iml
 
-# Generated engine artifacts (do not commit binaries)
+# Binary artifacts (do not commit)
 app/libs/*.aar
 third_party/libbox/*.aar
-
-# Avoid committing wrapper binary in this repository policy
+third_party/sing-box/**/sing-box
+app/src/main/assets/sing-box/**/sing-box
 gradle/wrapper/gradle-wrapper.jar

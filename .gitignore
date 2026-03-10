@@ -1,0 +1,14 @@
+.gradle/
+local.properties
+/.idea/
+.DS_Store
+/build/
+**/build/
+*.iml
+
+# Generated engine artifacts (do not commit binaries)
+app/libs/*.aar
+third_party/libbox/*.aar
+
+# Avoid committing wrapper binary in this repository policy
+gradle/wrapper/gradle-wrapper.jar

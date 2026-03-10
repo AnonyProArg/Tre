@@ -10,7 +10,6 @@ jobs:
       - name: Clone Stable Sing-box
         run: |
           git clone --recursive --branch stable https://github.com .
-          git submodule update --init --recursive
 
       - name: Setup Go
         uses: actions/setup-go@v5

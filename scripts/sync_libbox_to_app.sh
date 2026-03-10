@@ -2,14 +2,19 @@
 set -euo pipefail
 
 # Legacy filename kept to avoid breaking callers.
-# New behavior: sync sing-box executable binaries into app assets.
+# New behavior: sync arm64 sing-box executable binary into app assets.
 
-SRC_DIR="${1:-third_party/sing-box}"
-DST_DIR="app/src/main/assets/sing-box"
+SRC_DIR="${1:-third_party/sing-box/arm64-v8a}"
+DST_DIR="app/src/main/assets/sing-box/arm64-v8a"
 
-mkdir -p "$DST_DIR/arm64-v8a" "$DST_DIR/x86_64"
-cp "$SRC_DIR/arm64-v8a/sing-box" "$DST_DIR/arm64-v8a/sing-box"
-cp "$SRC_DIR/x86_64/sing-box" "$DST_DIR/x86_64/sing-box"
-chmod +x "$DST_DIR/arm64-v8a/sing-box" "$DST_DIR/x86_64/sing-box"
+mkdir -p "$DST_DIR"
 
-echo "Copied sing-box binaries to $DST_DIR"
+if [[ ! -f "$SRC_DIR/sing-box" ]]; then
+  echo "ERROR: missing source binary: $SRC_DIR/sing-box"
+  exit 1
+fi
+
+cp "$SRC_DIR/sing-box" "$DST_DIR/sing-box"
+chmod +x "$DST_DIR/sing-box"
+
+echo "Copied sing-box binary to $DST_DIR/sing-box"

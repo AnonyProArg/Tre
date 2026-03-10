@@ -23,7 +23,7 @@ class MainActivity : AppCompatActivity() {
         statusText.text = if (BuildConfig.HAS_SINGBOX_BINARIES) {
             "Estado: listo (binario sing-box integrado)"
         } else {
-            "Estado: falta binario en assets/sing-box/<abi>/sing-box"
+            "Estado: falta binario en assets/sing-box/arm64-v8a/sing-box"
         }
 
         connectButton.setOnClickListener {

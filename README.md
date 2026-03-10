@@ -1,23 +1,37 @@
 # App Android simple: TUN + sing-box (binario) + VLESS
 
-Reestructurado para usar **ejecutable sing-box** (sin AAR).
+Listo para tu archivo ya descargado:
 
-## Flujo rápido
+- `sing-box-1.13.2-android-arm64.tar.gz`
 
-1. Coloca binarios en:
-   - `app/src/main/assets/sing-box/arm64-v8a/sing-box`
-   - `app/src/main/assets/sing-box/x86_64/sing-box`
-2. Build app:
+## Dónde colocarlo
+
+Copia tu archivo aquí:
+
+- `third_party/uploads/sing-box-1.13.2-android-arm64.tar.gz`
+
+> Ese es el path que usa el script y el workflow.
+
+## Flujo local
+
+1. Preparar binario desde tu tar.gz:
+   - `./scripts/build_libbox_from_official.sh`
+2. Copiar binario a assets de la app:
+   - `./scripts/sync_libbox_to_app.sh`
+3. Compilar app:
    - `gradle assembleDebug`
-3. En runtime, la app copia el binario correcto (ABI) a `filesDir/sing-box`, da permiso de ejecución y lanza:
-   - `sing-box run -c <config>`
 
 ## Workflow CI (2 etapas)
 
-- **Stage 1**: prepara binarios oficiales de sing-box (`third_party/sing-box/...`).
-- **Stage 2**: sincroniza binarios a assets y compila APK.
-
 Archivo: `.github/workflows/android-two-stage.yml`
+
+- **Stage 1** valida que exista el tar.gz en `third_party/uploads/`, lo extrae y prepara:
+  - `third_party/sing-box/arm64-v8a/sing-box`
+- **Stage 2** descarga ese artefacto, lo sincroniza a assets y compila APK.
+
+## Ruta final del binario en app
+
+- `app/src/main/assets/sing-box/arm64-v8a/sing-box`
 
 ## Configuración VLESS
 
@@ -31,4 +45,4 @@ Outbound final: `orotoloco-vless`.
 
 ## Nota
 
-Los binarios están ignorados en git para evitar errores de PR por archivos binarios.
+Los binarios siguen ignorados en git para evitar errores de PR por archivos binarios.

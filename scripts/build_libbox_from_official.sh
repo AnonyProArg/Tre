@@ -2,28 +2,30 @@
 set -euo pipefail
 
 # Legacy filename kept to avoid breaking callers.
-# New behavior: fetch/build sing-box executable binaries (not AAR).
+# New behavior: prepare sing-box executable from a local uploaded tar.gz.
 
-SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.6}"
-OUTDIR="${OUTDIR:-$(pwd)/third_party/sing-box}"
+INPUT_TGZ="${INPUT_TGZ:-$(pwd)/third_party/uploads/sing-box-1.13.2-android-arm64.tar.gz}"
+OUTDIR="${OUTDIR:-$(pwd)/third_party/sing-box/arm64-v8a}"
+
+if [[ ! -f "$INPUT_TGZ" ]]; then
+  echo "ERROR: input tarball not found: $INPUT_TGZ"
+  echo "Upload your file here first: third_party/uploads/sing-box-1.13.2-android-arm64.tar.gz"
+  exit 1
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$OUTDIR"
+tar -xzf "$INPUT_TGZ" -C "$tmp"
 
-fetch_one() {
-  local arch="$1" abi="$2"
-  local url="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-android-${arch}.tar.gz"
-  local tmp
-  tmp="$(mktemp -d)"
-  curl -fL "$url" -o "$tmp/singbox.tgz"
-  tar -xzf "$tmp/singbox.tgz" -C "$tmp"
-  mkdir -p "$OUTDIR/$abi"
-  cp "$tmp/sing-box-${SINGBOX_VERSION}-android-${arch}/sing-box" "$OUTDIR/$abi/sing-box"
-  chmod +x "$OUTDIR/$abi/sing-box"
-  rm -rf "$tmp"
-  echo "Prepared $abi binary"
-}
+binary_path="$(find "$tmp" -type f -name sing-box | head -n 1)"
+if [[ -z "$binary_path" ]]; then
+  echo "ERROR: sing-box binary not found inside tarball"
+  exit 1
+fi
 
-fetch_one arm64 arm64-v8a
-fetch_one amd64 x86_64
+cp "$binary_path" "$OUTDIR/sing-box"
+chmod +x "$OUTDIR/sing-box"
 
-echo "Binaries generated in: $OUTDIR"
+echo "Prepared arm64 binary in: $OUTDIR/sing-box"

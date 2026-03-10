@@ -6,29 +6,30 @@ on:
     branches: ["**"]
 
 jobs:
-  stage1-prepare-singbox-binaries:
-    name: Stage 1 - Prepare sing-box executable binaries
+  stage1-prepare-singbox-binary:
+    name: Stage 1 - Prepare local sing-box binary (arm64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout app repo
         uses: actions/checkout@v4
 
-      - name: Prepare official sing-box binaries
-        env:
-          SINGBOX_VERSION: 1.13.6
+      - name: Verify uploaded tarball exists
         run: |
-          ./scripts/build_libbox_from_official.sh
+          test -f third_party/uploads/sing-box-1.13.2-android-arm64.tar.gz
 
-      - name: Upload sing-box artifacts
+      - name: Extract and prepare sing-box binary
+        run: ./scripts/build_libbox_from_official.sh
+
+      - name: Upload prepared binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: singbox-bin
-          path: third_party/sing-box/**/sing-box
+          name: singbox-bin-arm64
+          path: third_party/sing-box/arm64-v8a/sing-box
 
   stage2-build-android-app:
-    name: Stage 2 - Build app with sing-box binary
+    name: Stage 2 - Build app with sing-box arm64 binary
     runs-on: ubuntu-latest
-    needs: stage1-prepare-singbox-binaries
+    needs: stage1-prepare-singbox-binary
     steps:
       - name: Checkout app repo
         uses: actions/checkout@v4
@@ -45,18 +46,10 @@ jobs:
       - name: Download stage1 artifact
         uses: actions/download-artifact@v4
         with:
-          name: singbox-bin
-          path: third_party/sing-box
+          name: singbox-bin-arm64
+          path: third_party/sing-box/arm64-v8a
 
-      - name: Fix artifact structure
-        run: |
-          mkdir -p third_party/sing-box/arm64-v8a third_party/sing-box/x86_64
-          if [ -f third_party/sing-box/sing-box ]; then
-            cp third_party/sing-box/sing-box third_party/sing-box/arm64-v8a/sing-box
-            cp third_party/sing-box/sing-box third_party/sing-box/x86_64/sing-box
-          fi
-
-      - name: Sync binaries to assets
+      - name: Sync binary to assets
         run: ./scripts/sync_libbox_to_app.sh
 
       - name: Build debug APK

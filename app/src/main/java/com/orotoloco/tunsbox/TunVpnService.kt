@@ -54,10 +54,13 @@ class TunVpnService : VpnService() {
 
     private fun ensureBinaryForCurrentAbi(): File {
         val target = File(filesDir, "sing-box")
-        val abi = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "x86_64" }
-        if (abi == null) return target
+        val abi = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" }
+        if (abi == null) {
+            Log.e(TAG, "Solo se empaquetó binario arm64-v8a en esta base")
+            return target
+        }
 
-        val assetPath = "sing-box/$abi/sing-box"
+        val assetPath = "sing-box/arm64-v8a/sing-box"
         assets.open(assetPath).use { input ->
             FileOutputStream(target).use { output ->
                 input.copyTo(output)

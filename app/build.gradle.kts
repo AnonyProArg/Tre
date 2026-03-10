@@ -4,7 +4,6 @@ plugins {
 }
 
 val arm64Binary = file("src/main/assets/sing-box/arm64-v8a/sing-box")
-val x64Binary = file("src/main/assets/sing-box/x86_64/sing-box")
 
 android {
     namespace = "com.orotoloco.tunsbox"
@@ -24,7 +23,7 @@ android {
         buildConfigField(
             "boolean",
             "HAS_SINGBOX_BINARIES",
-            (arm64Binary.exists() && x64Binary.exists()).toString()
+            arm64Binary.exists().toString()
         )
     }
 

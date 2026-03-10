@@ -1,0 +1,43 @@
+name: Build Sing-box AAR
+
+on:
+  workflow_dispatch: # Permite ejecutarlo manualmente
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: main # O la versión específica que quieras, ej: v1.8.0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21' # Versión estable para sing-box
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c # Versión recomendada para compatibilidad
+
+      - name: Install Gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          gomobile init
+
+      - name: Build AAR
+        run: |
+          # Aquí compilamos solo lo esencial para que sea ligero
+          # Seleccionamos solo arm64-v8a para ahorrar espacio (el 99% de los teléfonos modernos)
+          gomobile bind -v -androidapi 21 -target android/arm64 -ldflags "-s -w" -tags "with_vless with_quic with_ech" ./constant
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-lib
+          path: "*.aar"
+          

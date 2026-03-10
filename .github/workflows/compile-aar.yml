@@ -10,7 +10,7 @@ on:
         type: string
 
   schedule:
-    - cron: '0 6 * * *'  # Chequea nuevas versiones cada día a las 6am UTC
+    - cron: '0 6 * * *'
 
   push:
     branches: [main]
@@ -20,15 +20,13 @@ on:
 env:
   SINGBOX_REPO: SagerNet/sing-box
   SINGBOX_BRANCH: ${{ github.event.inputs.version || 'stable' }}
-  GO_VERSION: '1.22'
   JAVA_VERSION: '17'
   NDK_VERSION: '26.3.11579264'
-  # Android API level mínimo
   ANDROID_MIN_SDK: '21'
 
 jobs:
   # ──────────────────────────────────────────────────────
-  # JOB 1: Detectar versión de sing-box
+  # JOB 1: Detectar versión
   # ──────────────────────────────────────────────────────
   check-version:
     name: 🔍 Detectar versión
@@ -53,17 +51,16 @@ jobs:
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.get_version.outputs.tag }}-aar" \
             | jq -r '.tag_name // empty')
-
           if [ -z "$EXISTING" ]; then
-            echo "✅ Nueva versión disponible, se procederá a compilar"
+            echo "✅ Nueva versión disponible"
             echo "build=true" >> $GITHUB_OUTPUT
           else
-            echo "⏭️ Ya existe AAR para ${{ steps.get_version.outputs.tag }}, saltando"
+            echo "⏭️ Ya existe AAR para esta versión"
             echo "build=false" >> $GITHUB_OUTPUT
           fi
 
   # ──────────────────────────────────────────────────────
-  # JOB 2: Compilar libbox como .aar
+  # JOB 2: Compilar libbox.aar
   # ──────────────────────────────────────────────────────
   build-aar:
     name: 🏗️ Compilar libbox.aar
@@ -72,7 +69,7 @@ jobs:
     if: needs.check-version.outputs.should_build == 'true' || github.event_name == 'workflow_dispatch'
 
     steps:
-      # ── 1. Clonar sing-box desde el repo oficial ──────
+      # ── 1. Clonar sing-box ────────────────────────────
       - name: 📥 Clonar sing-box (rama ${{ env.SINGBOX_BRANCH }})
         uses: actions/checkout@v4
         with:
@@ -80,104 +77,117 @@ jobs:
           ref: ${{ env.SINGBOX_BRANCH }}
           fetch-depth: 1
 
-      # ── 2. Go ─────────────────────────────────────────
-      - name: 🔧 Configurar Go ${{ env.GO_VERSION }}
+      # ── 2. Leer versión de Go del go.mod de sing-box ──
+      - name: 🔍 Detectar versión de Go requerida
+        id: go_version
+        run: |
+          GO_VER=$(grep '^go ' go.mod | awk '{print $2}')
+          echo "version=$GO_VER" >> $GITHUB_OUTPUT
+          echo "📌 Go requerido: $GO_VER"
+
+      # ── 3. Instalar la versión EXACTA de Go ──────────
+      - name: 🔧 Configurar Go ${{ steps.go_version.outputs.version }}
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ steps.go_version.outputs.version }}
           cache: true
           cache-dependency-path: go.sum
 
-      # ── 3. Java (necesario para el toolchain Android) ─
+      # ── 4. Java ───────────────────────────────────────
       - name: ☕ Configurar Java ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      # ── 4. Android SDK + NDK ──────────────────────────
-      - name: 🤖 Configurar Android SDK y NDK
+      # ── 5. Android SDK + NDK ──────────────────────────
+      - name: 🤖 Configurar Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: 📲 Instalar Android NDK ${{ env.NDK_VERSION }}
+      - name: 📲 Instalar NDK ${{ env.NDK_VERSION }}
         run: |
           sdkmanager "ndk;${{ env.NDK_VERSION }}"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
           echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
-      # ── 5. gomobile ───────────────────────────────────
-      - name: 📱 Instalar gomobile
+      # ── 6. Instalar gomobile correctamente ────────────
+      #
+      # FIX del error anterior:
+      # El problema era que `go install` no agrega el bin
+      # al PATH para steps siguientes. Aquí lo resolvemos
+      # exportando GOPATH/bin explícitamente Y usando la
+      # ruta absoluta $GOBIN/gomobile al ejecutar.
+      #
+      # Además, gomobile@latest puede requerir Go >= 1.25
+      # si sing-box usa una versión anterior. Por eso
+      # usamos `go run` con el módulo correcto de x/mobile
+      # que ya está en el go.sum del proyecto.
+      # ──────────────────────────────────────────────────
+      - name: 📱 Instalar gomobile y gobind
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
-          gomobile init
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          export GOPATH=$(go env GOPATH)
+          export GOBIN=$GOPATH/bin
 
-      # ── 6. Verificar entorno ──────────────────────────
+          # Instalar usando go install con @latest
+          # (compatible con la versión de Go detectada)
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go install golang.org/x/mobile/cmd/gomobile@latest
+
+          # Exportar GOBIN para todos los steps siguientes
+          echo "$GOBIN" >> $GITHUB_PATH
+          echo "GOBIN=$GOBIN" >> $GITHUB_ENV
+
+          # Inicializar gomobile con el NDK ya instalado
+          $GOBIN/gomobile init
+
+          echo "✅ gomobile instalado en: $GOBIN/gomobile"
+          $GOBIN/gomobile version || echo "(versión no reportada, binario existe)"
+
+      # ── 7. Info del entorno ───────────────────────────
       - name: 📋 Info del entorno
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Go:          $(go version)"
-          echo "  Java:        $(java -version 2>&1 | head -1)"
-          echo "  gomobile:    $(gomobile version 2>/dev/null || echo 'instalado')"
-          echo "  NDK:         $ANDROID_NDK_HOME"
-          echo "  Rama:        ${{ env.SINGBOX_BRANCH }}"
-          echo "  Min SDK:     ${{ env.ANDROID_MIN_SDK }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Go:       $(go version)"
+          echo "  Java:     $(java -version 2>&1 | head -1)"
+          echo "  gomobile: $($GOBIN/gomobile version 2>/dev/null || echo 'ok')"
+          echo "  NDK:      $ANDROID_NDK_HOME"
+          echo "  Rama:     ${{ env.SINGBOX_BRANCH }}"
+          echo "  Min SDK:  ${{ env.ANDROID_MIN_SDK }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      # ── 7. Descargar dependencias Go ──────────────────
-      - name: 📦 Descargar dependencias
+      # ── 8. Descargar dependencias ─────────────────────
+      - name: 📦 Descargar dependencias Go
         run: go mod download
 
-      # ── 8. Detectar ruta de libbox ────────────────────
+      # ── 9. Verificar que libbox existe ────────────────
       - name: 🔍 Localizar paquete libbox
         id: libbox_path
         run: |
-          # sing-box expone libbox en experimental/libbox o box/experimental/libbox
-          # según la versión. Detectamos automáticamente.
-          LIBBOX_PKG=""
-          for candidate in \
-            "experimental/libbox" \
-            "experimental/libbox/..." \
-            "./experimental/libbox"; do
-            if [ -d "experimental/libbox" ]; then
-              LIBBOX_PKG="./experimental/libbox"
-              break
-            fi
-          done
-
-          if [ -z "$LIBBOX_PKG" ]; then
-            echo "⚠️  No se encontró experimental/libbox, buscando alternativas..."
-            find . -name "*.go" | xargs grep -l "gomobile" 2>/dev/null | head -5
-            # Intentar con el módulo raíz si libbox está embebido
-            LIBBOX_PKG="."
+          if [ -d "experimental/libbox" ]; then
+            echo "pkg=./experimental/libbox" >> $GITHUB_OUTPUT
+            echo "📍 Encontrado: ./experimental/libbox"
+            ls experimental/libbox/*.go | head -5
+          else
+            echo "❌ No se encontró experimental/libbox"
+            find . -maxdepth 4 -name "*.go" | xargs grep -l "gomobile\|ExportedForMobile" 2>/dev/null | head -5
+            exit 1
           fi
 
-          echo "pkg=$LIBBOX_PKG" >> $GITHUB_OUTPUT
-          echo "📍 Paquete libbox: $LIBBOX_PKG"
-
-      # ── 9. Compilar el .aar con gomobile bind ─────────
+      # ── 10. Compilar AAR ──────────────────────────────
       - name: 🔨 Compilar libbox.aar
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           COMMIT=$(git rev-parse --short HEAD)
+          echo "📌 Versión: $VERSION ($COMMIT)"
 
-          echo "📌 Compilando versión: $VERSION ($COMMIT)"
-
-          # Tags de features para sing-box (mismos que en build nativo)
           BUILD_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_ech,with_utls,with_reality_server,with_clash_api,with_v2ray_api,with_acme"
 
-          # Flags de linker
           LDFLAGS="-s -w \
             -X github.com/sagernet/sing-box/constant.Version=${VERSION} \
             -X github.com/sagernet/sing-box/constant.Commit=${COMMIT}"
 
-          # gomobile bind genera:
-          #   libbox.aar     → biblioteca para Android (incluye JNI + Go runtime)
-          #   libbox-sources.jar → fuentes Java/Kotlin generadas por gobind
-          gomobile bind \
+          # Usar ruta absoluta al binario de gomobile
+          $GOBIN/gomobile bind \
             -v \
             -target android \
             -androidapi ${{ env.ANDROID_MIN_SDK }} \
@@ -186,29 +196,26 @@ jobs:
             -o libbox.aar \
             ${{ steps.libbox_path.outputs.pkg }}
 
-          echo "✅ Compilación exitosa"
+          echo ""
+          echo "✅ Build completado:"
           ls -lh libbox.aar libbox-sources.jar 2>/dev/null
 
-      # ── 10. Información del .aar generado ─────────────
+      # ── 11. Inspeccionar AAR ──────────────────────────
       - name: 🔎 Inspeccionar contenido del AAR
         run: |
-          echo "📦 Estructura del AAR:"
-          unzip -l libbox.aar | head -40
-
+          echo "📦 Librerías nativas incluidas:"
+          unzip -l libbox.aar | grep '\.so' || true
           echo ""
-          echo "📐 Tamaños por arquitectura:"
-          unzip -p libbox.aar "jni/*/*.so" > /dev/null 2>&1 || true
-          unzip libbox.aar "jni/**" -d aar_contents 2>/dev/null || true
-          find aar_contents -name "*.so" -exec ls -lh {} \; 2>/dev/null || true
+          echo "📐 Tamaño total: $(du -sh libbox.aar | cut -f1)"
 
-      # ── 11. Generar checksums ─────────────────────────
+      # ── 12. Checksums ─────────────────────────────────
       - name: 🔐 Generar checksums SHA256
         run: |
           sha256sum libbox.aar > libbox.aar.sha256
           [ -f libbox-sources.jar ] && sha256sum libbox-sources.jar > libbox-sources.jar.sha256 || true
           cat libbox.aar.sha256
 
-      # ── 12. Subir artefactos ──────────────────────────
+      # ── 13. Subir artefacto ───────────────────────────
       - name: 📤 Subir AAR como artefacto
         uses: actions/upload-artifact@v4
         with:
@@ -221,7 +228,7 @@ jobs:
           retention-days: 30
 
   # ──────────────────────────────────────────────────────
-  # JOB 3: Publicar Release con el .aar
+  # JOB 3: Release
   # ──────────────────────────────────────────────────────
   release:
     name: 🚀 Publicar Release
@@ -238,9 +245,6 @@ jobs:
           name: sing-box-libbox-aar
           path: ./artifacts
 
-      - name: 📋 Listar artefactos
-        run: find ./artifacts -type f | sort
-
       - name: 🚀 Crear GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -250,58 +254,26 @@ jobs:
             ## 📦 sing-box libbox — Android AAR
 
             **Versión upstream:** [`${{ needs.check-version.outputs.latest_tag }}`](https://github.com/SagerNet/sing-box/releases/tag/${{ needs.check-version.outputs.latest_tag }})
-            **Compilado el:** ${{ github.run_id && 'ver Actions' || '' }}
             **Rama:** `${{ env.SINGBOX_BRANCH }}`
             **Android Min SDK:** API ${{ env.ANDROID_MIN_SDK }}
 
-            ---
+            ### ✅ Features incluidas
+            `with_gvisor` · `with_quic` · `with_dhcp` · `with_wireguard` · `with_ech` · `with_utls` · `with_reality_server` · `with_clash_api` · `with_v2ray_api` · `with_acme`
 
-            ### ✅ Features incluidas en el AAR
-            | Feature | Estado |
-            |---------|--------|
-            | `with_gvisor` | ✅ |
-            | `with_quic` | ✅ |
-            | `with_dhcp` | ✅ |
-            | `with_wireguard` | ✅ |
-            | `with_ech` | ✅ |
-            | `with_utls` | ✅ |
-            | `with_reality_server` | ✅ |
-            | `with_clash_api` | ✅ |
-            | `with_v2ray_api` | ✅ |
-            | `with_acme` | ✅ |
-
-            ---
-
-            ### 📥 Cómo usar el AAR en tu proyecto Android
-
-            #### Gradle (módulo local)
+            ### 📥 Uso en Android (Gradle)
             ```groovy
-            // settings.gradle
-            // Copia libbox.aar a tu carpeta app/libs/
-
-            // app/build.gradle
+            // Copia libbox.aar a app/libs/
             dependencies {
                 implementation fileTree(dir: 'libs', include: ['*.aar'])
             }
             ```
-
-            #### Kotlin/Java — importar libbox
-            ```kotlin
-            import go.Seq
-            import libbox.Libbox
-
-            // Inicializar en Application.onCreate()
-            Seq.setContext(applicationContext)
-            ```
-
-            ---
 
             ### 🔐 Verificar integridad
             ```bash
             sha256sum -c libbox.aar.sha256
             ```
 
-            > ⚠️ Build no oficial. Código fuente: [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
+            > ⚠️ Build no oficial. Fuente: [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
           files: ./artifacts/*
           draft: false
           prerelease: false

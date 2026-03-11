@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Local VPN Proxy</string>
+    <string name="start_vpn">Solicitar permiso y conectar VPN</string>
+    <string name="description">Esta app crea una VPN local y reenvía los paquetes capturados hacia 127.0.0.1:1080.</string>
+</resources>

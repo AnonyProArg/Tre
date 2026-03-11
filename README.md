@@ -16,7 +16,10 @@ gradle assembleDebug
 
 ## Workflow CI
 
-El workflow `.github/workflows/android-build.yml` compila el APK debug en cada push/PR usando Gradle sin wrapper binario en el repositorio.
+El workflow `.github/workflows/android-build.yml` ejecuta un flujo de 2 jobs:
+
+1. `build-libbox`: compila `libbox.aar` y `libbox-sources.jar` desde `SagerNet/sing-box`.
+2. `build-apk`: descarga esos artifacts a `app/libs/libbox/` y compila el APK debug.
 
 ## Binario sing-box (forma nativa clásica en Android)
 
@@ -43,22 +46,12 @@ Como red de seguridad para pruebas, la app también reintenta cada variante acti
 Se cambió la estrategia TUN para Android VPN: la app crea la interfaz con `VpnService.Builder.establish()`, duplica su FD al descriptor esperado por sing-box (FD 7) y escribe `"fd": 7` en el inbound `tun`. Así sing-box reutiliza el TUN del sistema y no intenta crearlo por su cuenta.
 
 
-## Flujo recomendado para `libbox.aar` (2 etapas)
+## Flujo de artifacts `libbox.aar`
 
-1. **Construir artifacts desde upstream**
-   - Ejecuta el workflow `Build libbox.aar` (`.github/workflows/build-libbox-aar.yml`).
-   - Descarga el artifact `libbox-vless-<version>`.
-
-2. **Importar artifacts en esta app**
-   - Copia `libbox.aar` y `libbox-sources.jar` a `app/libs/libbox/`.
-   - Script de ayuda:
+Para local/manual puedes seguir usando:
 
 ```bash
 scripts/install_libbox_artifacts.sh <directorio_descargado_del_artifact>
 ```
 
-### Notas de integración
-
-- El build detecta automáticamente `app/libs/libbox/libbox.aar` y lo agrega como dependencia local.
-- Si `libbox.aar` no está presente, el proyecto sigue compilando con el flujo CLI actual.
-- La carpeta `app/libs/libbox/` está preparada para que puedas alternar fácilmente entre `libbox.aar` y `libbox-legacy.aar` según tu estrategia.
+La app carga automáticamente `*.aar` desde `app/libs/libbox/` vía Gradle.

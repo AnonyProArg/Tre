@@ -6,29 +6,126 @@ on:
   pull_request:
 
 jobs:
-  build:
+  build-libbox:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout sing-box
         uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: v1.13.2
+          fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK r27
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+
+      - name: Install gomobile (SagerNet fork)
+        run: |
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Initialize gomobile
+        run: gomobile init
+
+      - name: Patch build tags (VLESS + TUN only)
+        run: |
+          python3 - << 'PYEOF'
+          with open('./cmd/internal/build_libbox/main.go', 'r') as f:
+              content = f.read()
+
+          remove_tags = [
+              'with_quic',
+              'with_dhcp',
+              'with_acme',
+              'with_clash_api',
+              'with_tailscale',
+              'with_wireguard',
+              'with_ccm',
+              'with_ocm',
+              'with_naive_outbound',
+          ]
+
+          for tag in remove_tags:
+              content = content.replace(f'"{tag}", ', '')
+              content = content.replace(f', "{tag}"', '')
+              content = content.replace(f'"{tag}"', '')
+
+          lines = content.split('\n')
+          lines = [l for l in lines if 'ts_omit' not in l]
+          content = '\n'.join(lines)
+
+          with open('./cmd/internal/build_libbox/main.go', 'w') as f:
+              f.write(content)
+
+          print("Parche aplicado")
+          PYEOF
+
+      - name: Build libbox.aar
+        run: go run ./cmd/internal/build_libbox --target android
+
+      - name: Upload libbox artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-v1.13.2
+          path: |
+            libbox.aar
+            libbox-sources.jar
+          if-no-files-found: error
+
+  build-apk:
+    runs-on: ubuntu-latest
+    needs: build-libbox
+
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build debug APK
-        run: gradle assembleDebug
+      - name: Download libbox artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: libbox-v1.13.2
+          path: app/libs/libbox/
 
-      - name: Upload debug APK artifact
+      - name: Verify libbox files
+        run: |
+          echo "=== Archivos en app/libs/libbox/ ==="
+          ls -lh app/libs/libbox/
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk

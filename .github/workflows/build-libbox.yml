@@ -35,10 +35,10 @@ jobs:
       - name: Setup Android SDK & NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK
+      - name: Install NDK r25c
         run: |
-          sdkmanager "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+          sdkmanager "ndk;25.2.9519653"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
 
       - name: Install gomobile (SagerNet fork)
         run: |
@@ -49,36 +49,29 @@ jobs:
       - name: Initialize gomobile
         run: gomobile init
 
-      - name: Get version
-        id: version
+      - name: Build libbox.aar (VLESS + TUN only)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          VERSION=$(CGO_ENABLED=0 go run github.com/sagernet/sing-box/cmd/internal/read_tag@${{ github.event.inputs.version }} 2>/dev/null || echo "${{ github.event.inputs.version }}")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Build libbox.aar
-        run: |
+          # Tags minimos: TUN stack (gvisor) + utls para TLS fingerprinting
+          # Sin: quic, wireguard, tailscale, dhcp, acme, clash_api, ccm, ocm
+          # VLESS esta en el core, no necesita tag
           go run ./cmd/internal/build_libbox \
-            --target android
+            --target android \
+            -extra-tags with_gvisor,with_utls,badlinkname
 
-      - name: Rename output
+      - name: Find output files
         run: |
-          ls -la *.aar *.jar 2>/dev/null || true
-          find . -name "*.aar" | head -5
+          echo "=== Archivos .aar encontrados ==="
+          find . -name "*.aar" 2>/dev/null
+          echo "=== Archivos .jar encontrados ==="
+          find . -name "*.jar" 2>/dev/null
 
       - name: Upload libbox.aar
         uses: actions/upload-artifact@v4
         with:
-          name: libbox-${{ github.event.inputs.version }}
+          name: libbox-vless-${{ github.event.inputs.version }}
           path: |
-            *.aar
-            *.jar
+            **/*.aar
+            **/*.jar
           if-no-files-found: warn
-
-      - name: Upload to Release (opcional)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            *.aar
-            *.jar
-            

@@ -13,23 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download and unpack sing-box binary
-        run: |
-          set -euxo pipefail
-          ARCHIVE_URL="https://raw.githubusercontent.com/AnonyProArg/Tre/refs/heads/codex/create-android-vpn-application-with-proxy/sing-box-1.13.2-android-arm64.tar.gz"
-          TARGET_DIR="app/src/main/assets/sing-box/android-arm64"
-          TMP_DIR="$(mktemp -d)"
-
-          mkdir -p "$TARGET_DIR"
-          curl -fL "$ARCHIVE_URL" -o "$TMP_DIR/sing-box-android-arm64.tar.gz"
-          tar -xzf "$TMP_DIR/sing-box-android-arm64.tar.gz" -C "$TMP_DIR"
-
-          cp "$TMP_DIR/sing-box-1.13.2-android-arm64/sing-box" "$TARGET_DIR/sing-box"
-          chmod +x "$TARGET_DIR/sing-box"
-
-          echo "Contenido final en $TARGET_DIR:"
-          ls -lah "$TARGET_DIR"
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:

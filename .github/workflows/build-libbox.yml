@@ -35,10 +35,10 @@ jobs:
       - name: Setup Android SDK & NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK r25c
+      - name: Install NDK r27
         run: |
-          sdkmanager "ndk;25.2.9519653"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
 
       - name: Install gomobile (SagerNet fork)
         run: |
@@ -49,15 +49,18 @@ jobs:
       - name: Initialize gomobile
         run: gomobile init
 
-      - name: Show and patch build tags
+      - name: Show go.mod cronet dependency
         run: |
-          echo "=== build_libbox/main.go tags originales ==="
-          grep -n "tags\|with_quic\|with_tail\|with_wire\|with_gvisor\|with_utls\|with_dhcp\|with_acme\|with_clash\|with_ccm\|with_ocm" \
-            ./cmd/internal/build_libbox/main.go || true
+          echo "=== cronet-go en go.mod ==="
+          grep -n "cronet" go.mod go.sum 2>/dev/null | head -10 || true
+          echo "=== Quien importa cronet ==="
+          grep -rn "cronet" --include="*.go" . | grep -v "_test.go" | grep "import\|cronet" | head -20 || true
 
-          echo ""
-          echo "=== Parcheando: eliminando tags innecesarios ==="
-          # Quitar tags que causan problemas o no necesitamos
+      - name: Patch build tags
+        run: |
+          echo "=== Tags originales ==="
+          grep -n "sharedTags\|with_quic\|with_tail\|with_wire" ./cmd/internal/build_libbox/main.go | head -10
+
           sed -i 's/with_quic,\?//g' ./cmd/internal/build_libbox/main.go
           sed -i 's/with_dhcp,\?//g' ./cmd/internal/build_libbox/main.go
           sed -i 's/with_acme,\?//g' ./cmd/internal/build_libbox/main.go
@@ -66,11 +69,22 @@ jobs:
           sed -i 's/with_wireguard,\?//g' ./cmd/internal/build_libbox/main.go
           sed -i 's/with_ccm,\?//g' ./cmd/internal/build_libbox/main.go
           sed -i 's/with_ocm,\?//g' ./cmd/internal/build_libbox/main.go
-          sed -i 's/ts_omit[a-z_]*,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i '/ts_omit/d' ./cmd/internal/build_libbox/main.go
 
-          echo ""
           echo "=== Tags después del parche ==="
-          grep -n "tags\|with_" ./cmd/internal/build_libbox/main.go || true
+          grep -n "sharedTags\|with_" ./cmd/internal/build_libbox/main.go | head -10
+
+      - name: Remove cronet-go from go.mod
+        run: |
+          # cronet-go solo lo usa with_quic (HTTP/3) que ya no necesitamos
+          # Lo excluimos del módulo
+          go mod edit -droprequire github.com/sagernet/cronet-go 2>/dev/null || true
+          # También excluir cualquier replace que lo mencione
+          grep "cronet" go.mod || echo "cronet-go no está en go.mod directo"
+          # Limpiar dependencias
+          go mod tidy -e 2>/dev/null || true
+          echo "=== go.mod después ==="
+          grep "cronet" go.mod || echo "cronet-go eliminado correctamente"
 
       - name: Build libbox.aar
         run: |
@@ -78,7 +92,6 @@ jobs:
 
       - name: Find output files
         run: |
-          echo "=== Archivos generados ==="
           find . -name "*.aar" -o -name "*.jar" 2>/dev/null | grep -v "/.git/"
 
       - name: Upload libbox.aar

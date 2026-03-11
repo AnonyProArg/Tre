@@ -3,6 +3,7 @@ package com.example.localvpn
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.File
@@ -118,15 +119,28 @@ class LocalVpnService : VpnService() {
     }
 
     private fun resolveSingBoxBinary(): File {
-        val nativeBinary = File(applicationInfo.nativeLibraryDir, SING_BOX_NATIVE_LIBRARY_NAME)
+        val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
+        val nativeDirCandidate = File(nativeLibDir, SING_BOX_NATIVE_LIBRARY_NAME)
+        val classLoaderCandidate = applicationContext.classLoader
+            ?.findLibrary(SING_BOX_LIBRARY_BASENAME)
+            ?.let(::File)
 
-        if (!nativeBinary.exists()) {
-            throw IOException("Binario nativo no encontrado en ${nativeBinary.absolutePath}")
+        val candidates = linkedSetOf<File>().apply {
+            classLoaderCandidate?.let(::add)
+            add(nativeDirCandidate)
         }
 
-        emitLog("Binario nativo detectado en: ${nativeBinary.absolutePath}")
-        emitLog("Permiso de ejecución nativo: ${nativeBinary.canExecute()}")
-        return nativeBinary
+        val resolvedBinary = candidates.firstOrNull { it.exists() }
+            ?: throw IOException(
+                "Binario nativo no encontrado. nativeLibraryDir=$nativeLibDir, " +
+                    "candidatos=${candidates.joinToString { it.absolutePath }}, " +
+                    "abis=${Build.SUPPORTED_ABIS.joinToString()}"
+            )
+
+        emitLog("nativeLibraryDir runtime: $nativeLibDir")
+        emitLog("Binario nativo detectado en: ${resolvedBinary.absolutePath}")
+        emitLog("Permiso de ejecución nativo: ${resolvedBinary.canExecute()}")
+        return resolvedBinary
     }
 
     private fun writeSingBoxConfig(): File {
@@ -144,6 +158,7 @@ class LocalVpnService : VpnService() {
     companion object {
         private const val TAG = "LocalVpnService"
         private const val SING_BOX_NATIVE_LIBRARY_NAME = "libsingbox.so"
+        private const val SING_BOX_LIBRARY_BASENAME = "singbox"
         private const val TERMUX_PACKAGE_NAME = "com.termux"
 
         private const val SING_BOX_CONFIG_JSON = """

@@ -27,3 +27,5 @@ De forma clásica, el proyecto lo prepara en build-time con Gradle (task `prepar
 En runtime, la app lo ejecuta desde:
 
 - `${applicationInfo.nativeLibraryDir}/libsingbox.so`
+
+La resolución de ruta se hace en tiempo de ejecución (sin hardcodear `/data/app/...`) usando `applicationContext.applicationInfo.nativeLibraryDir` y fallback por `classLoader.findLibrary("singbox")`.

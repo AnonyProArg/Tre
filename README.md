@@ -29,3 +29,5 @@ En runtime, la app lo ejecuta desde:
 - `${applicationInfo.nativeLibraryDir}/libsingbox.so`
 
 La resolución de ruta se hace en tiempo de ejecución (sin hardcodear `/data/app/...`) usando `applicationContext.applicationInfo.nativeLibraryDir` y el nombre `libsingbox.so`.
+
+Si por políticas del dispositivo/instalación no aparece extraído en `nativeLibraryDir`, la app aplica fallback robusto: lee `lib*/libsingbox.so` desde el APK instalado (`sourceDir`/`splitSourceDirs`), lo copia a `files/native-bin/sing-box`, aplica permisos y ejecuta desde ahí.

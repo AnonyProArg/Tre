@@ -8,6 +8,7 @@ import android.util.Log
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.ZipFile
 
 class LocalVpnService : VpnService() {
 
@@ -121,17 +122,56 @@ class LocalVpnService : VpnService() {
         val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
         val nativeBinary = File(nativeLibDir, SING_BOX_NATIVE_LIBRARY_NAME)
 
-        if (!nativeBinary.exists()) {
-            throw IOException(
-                "Binario nativo no encontrado en ${nativeBinary.absolutePath}. " +
-                    "nativeLibraryDir=$nativeLibDir"
-            )
+        emitLog("nativeLibraryDir runtime: $nativeLibDir")
+
+        if (nativeBinary.exists()) {
+            emitLog("Binario nativo detectado en: ${nativeBinary.absolutePath}")
+            emitLog("Permiso de ejecución nativo: ${nativeBinary.canExecute()}")
+            return nativeBinary
         }
 
-        emitLog("nativeLibraryDir runtime: $nativeLibDir")
-        emitLog("Binario nativo detectado en: ${nativeBinary.absolutePath}")
-        emitLog("Permiso de ejecución nativo: ${nativeBinary.canExecute()}")
-        return nativeBinary
+        emitLog("WARN: no existe en nativeLibraryDir, intentando extraer desde APK")
+        val extracted = extractNativeBinaryFromInstalledApk()
+        emitLog("Binario extraído desde APK en: ${extracted.absolutePath}")
+        emitLog("Permiso de ejecución extraído: ${extracted.canExecute()}")
+        return extracted
+    }
+
+    private fun extractNativeBinaryFromInstalledApk(): File {
+        val appInfo = applicationContext.applicationInfo
+        val apkCandidates = buildList {
+            add(appInfo.sourceDir)
+            appInfo.splitSourceDirs?.let { addAll(it) }
+        }
+
+        val targetDir = File(filesDir, "native-bin").apply { mkdirs() }
+        val targetBinary = File(targetDir, "sing-box")
+
+        apkCandidates.forEach { apkPath ->
+            ZipFile(apkPath).use { zip ->
+                APK_LIB_ENTRY_CANDIDATES.firstNotNullOfOrNull { entryPath ->
+                    zip.getEntry(entryPath)?.let { entry ->
+                        zip.getInputStream(entry).use { input ->
+                            targetBinary.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        targetBinary
+                    }
+                }?.let {
+                    val executableApplied = it.setExecutable(true, false)
+                    val readableApplied = it.setReadable(true, false)
+                    emitLog(
+                        "Permisos aplicados para fallback (x/r): $executableApplied/$readableApplied"
+                    )
+                    return it
+                }
+            }
+        }
+
+        throw IOException(
+            "Binario nativo no encontrado. Buscado en nativeLibraryDir=${appInfo.nativeLibraryDir} " +
+                "y entradas APK=${APK_LIB_ENTRY_CANDIDATES.joinToString()} " +
+                "de ${apkCandidates.joinToString()}"
+        )
     }
 
     private fun writeSingBoxConfig(): File {
@@ -149,6 +189,12 @@ class LocalVpnService : VpnService() {
     companion object {
         private const val TAG = "LocalVpnService"
         private const val SING_BOX_NATIVE_LIBRARY_NAME = "libsingbox.so"
+        private val APK_LIB_ENTRY_CANDIDATES = listOf(
+            "lib/arm64-v8a/libsingbox.so",
+            "lib/armeabi-v7a/libsingbox.so",
+            "lib/x86_64/libsingbox.so",
+            "lib/x86/libsingbox.so"
+        )
         private const val TERMUX_PACKAGE_NAME = "com.termux"
 
         private const val SING_BOX_CONFIG_JSON = """

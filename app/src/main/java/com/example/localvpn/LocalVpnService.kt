@@ -1,93 +1,179 @@
 package com.example.localvpn
 
-import android.content.pm.PackageManager
+import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
-import java.io.FileInputStream
+import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LocalVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var forwardingThread: Thread? = null
+    private var singBoxProcess: Process? = null
+    private var stdoutThread: Thread? = null
+    private var stderrThread: Thread? = null
     private val running = AtomicBoolean(false)
 
-    override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
-        if (running.get()) return START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (running.get()) {
+            Log.d(TAG, "VPN service already running")
+            return START_STICKY
+        }
 
-        val builder = Builder()
-            .setSession("LocalVpnProxySession")
-            .setMtu(1500)
-            .addAddress("10.10.0.2", 24)
-            .addDnsServer("1.1.1.1")
-            .addRoute("0.0.0.0", 0)
+        return try {
+            val builder = Builder()
+                .setSession("TreSingBoxSession")
+                .setMtu(1500)
+                .addAddress("172.19.0.1", 30)
+                .addRoute("0.0.0.0", 0)
+                .addDnsServer("8.8.8.8")
 
-        excludeTermuxFromTun(builder)
+            vpnInterface = builder.establish() ?: run {
+                Log.e(TAG, "No se pudo crear la interfaz TUN")
+                return START_NOT_STICKY
+            }
 
-        vpnInterface = builder.establish() ?: return START_NOT_STICKY
+            val singBoxBinary = prepareSingBoxBinary()
+            val configFile = writeSingBoxConfig()
 
-        running.set(true)
-        forwardingThread = Thread {
-            forwardPacketsToLocalProxy()
-        }.also { it.start() }
-
-        return START_STICKY
+            startSingBox(singBoxBinary, configFile)
+            running.set(true)
+            START_STICKY
+        } catch (e: Exception) {
+            Log.e(TAG, "Error iniciando VPN con sing-box", e)
+            stopSelf()
+            START_NOT_STICKY
+        }
     }
 
     override fun onDestroy() {
         running.set(false)
-        forwardingThread?.interrupt()
+
+        stdoutThread?.interrupt()
+        stderrThread?.interrupt()
+
+        singBoxProcess?.destroy()
+        singBoxProcess = null
+
         try {
             vpnInterface?.close()
-        } catch (_: IOException) {
+        } catch (e: IOException) {
+            Log.w(TAG, "Error cerrando interfaz VPN", e)
         }
+        vpnInterface = null
+
         super.onDestroy()
     }
 
+    private fun startSingBox(binary: File, configFile: File) {
+        val command = listOf(
+            binary.absolutePath,
+            "run",
+            "-c",
+            configFile.absolutePath,
+            "--force-passive-tun"
+        )
 
-    private fun excludeTermuxFromTun(builder: Builder) {
-        try {
-            builder.addDisallowedApplication(TERMUX_PACKAGE)
-        } catch (_: PackageManager.NameNotFoundException) {
-            // Termux no está instalado; no se requiere exclusión.
-        }
+        Log.d(TAG, "Ejecutando: ${command.joinToString(" ")}")
+
+        singBoxProcess = ProcessBuilder(command)
+            .directory(filesDir)
+            .redirectErrorStream(false)
+            .start()
+
+        stdoutThread = Thread {
+            singBoxProcess?.inputStream?.bufferedReader()?.useLines { lines ->
+                lines.forEach { line -> Log.d(SING_BOX_LOG_TAG, line) }
+            }
+        }.also { it.start() }
+
+        stderrThread = Thread {
+            singBoxProcess?.errorStream?.bufferedReader()?.useLines { lines ->
+                lines.forEach { line -> Log.e(SING_BOX_LOG_TAG, line) }
+            }
+        }.also { it.start() }
     }
 
-    private fun forwardPacketsToLocalProxy() {
-        val tunFd = vpnInterface ?: return
-        val input = FileInputStream(tunFd.fileDescriptor)
-        val packetBuffer = ByteArray(MAX_PACKET_SIZE)
+    private fun prepareSingBoxBinary(): File {
+        val targetDir = File(filesDir, "sing-box").apply { mkdirs() }
+        val targetBinary = File(targetDir, "sing-box")
 
-        while (running.get()) {
-            try {
-                val packetSize = input.read(packetBuffer)
-                if (packetSize <= 0) continue
-
-                sendToProxy(packetBuffer, packetSize)
-            } catch (_: IOException) {
-                running.set(false)
+        assets.open(SING_BOX_ASSET_PATH).use { input ->
+            FileOutputStream(targetBinary).use { output ->
+                input.copyTo(output)
             }
         }
+
+        if (!targetBinary.setExecutable(true)) {
+            Log.w(TAG, "No se pudo marcar sing-box como ejecutable")
+        }
+
+        return targetBinary
     }
 
-    private fun sendToProxy(packet: ByteArray, length: Int) {
-        Socket().use { socket ->
-            protect(socket)
-            socket.connect(InetSocketAddress(PROXY_HOST, PROXY_PORT), PROXY_TIMEOUT_MS)
-            val out = socket.getOutputStream()
-            out.write(packet, 0, length)
-            out.flush()
-        }
+    private fun writeSingBoxConfig(): File {
+        val configFile = File(filesDir, "config.json")
+        configFile.writeText(SING_BOX_CONFIG_JSON)
+        return configFile
     }
 
     companion object {
-        private const val MAX_PACKET_SIZE = 32767
-        private const val PROXY_HOST = "127.0.0.1"
-        private const val PROXY_PORT = 1080
-        private const val PROXY_TIMEOUT_MS = 2500
-        private const val TERMUX_PACKAGE = "com.termux"
+        private const val TAG = "LocalVpnService"
+        private const val SING_BOX_LOG_TAG = "SING-BOX-CORE"
+        private const val SING_BOX_ASSET_PATH = "sing-box/android-arm64/sing-box"
+
+        private const val SING_BOX_CONFIG_JSON = """
+            {
+              "log": {
+                "level": "debug",
+                "timestamp": true
+              },
+              "dns": {
+                "servers": [
+                  {
+                    "tag": "google-dns",
+                    "address": "https://8.8.8.8",
+                    "detour": "direct-out"
+                  }
+                ],
+                "independent_cache": true
+              },
+              "inbounds": [
+                {
+                  "type": "tun",
+                  "tag": "tun-in",
+                  "interface_name": "tun0",
+                  "address": ["172.19.0.1/30"],
+                  "mtu": 1500,
+                  "stack": "gvisor",
+                  "sniff": true,
+                  "sniff_override_destination": true
+                }
+              ],
+              "outbounds": [
+                {
+                  "type": "direct",
+                  "tag": "direct-out"
+                }
+              ],
+              "route": {
+                "rules": [
+                  {
+                    "protocol": "dns",
+                    "action": "hijack-dns"
+                  },
+                  {
+                    "inbound": "tun-in",
+                    "action": "route",
+                    "outbound": "direct-out"
+                  }
+                ],
+                "final": "direct-out"
+              }
+            }
+        """
     }
 }

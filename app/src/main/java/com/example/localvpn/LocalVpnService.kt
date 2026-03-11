@@ -128,8 +128,15 @@ class LocalVpnService : VpnService() {
             }
         }
 
-        if (!targetBinary.setExecutable(true)) {
-            emitLog("WARN: no se pudo marcar sing-box como ejecutable")
+        if (targetBinary.exists()) {
+            val executableApplied = targetBinary.setExecutable(true, false)
+            val readableApplied = targetBinary.setReadable(true, false)
+            emitLog("Permisos aplicados (x/r): $executableApplied/$readableApplied para ${targetBinary.absolutePath}")
+            if (!targetBinary.canExecute()) {
+                emitLog("WARN: el binario sigue sin permiso de ejecución")
+            }
+        } else {
+            emitLog("ERROR: binario no encontrado en ${targetBinary.absolutePath}")
         }
 
         emitLog("Binario preparado en: ${targetBinary.absolutePath}")

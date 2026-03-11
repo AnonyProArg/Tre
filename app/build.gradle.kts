@@ -5,6 +5,7 @@ plugins {
 
 val singBoxArchive = rootProject.file("sing-box-1.13.2-android-arm64.tar.gz")
 val generatedJniLibsDir = layout.buildDirectory.dir("generated/singbox/jniLibs")
+val libboxAar = project.file("libs/libbox/libbox.aar")
 
 val prepareSingBoxJniLibs by tasks.registering(Copy::class) {
     from(tarTree(resources.gzip(singBoxArchive))) {
@@ -72,4 +73,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
+    if (libboxAar.exists()) {
+        implementation(files(libboxAar))
+    }
 }

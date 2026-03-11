@@ -41,3 +41,24 @@ Además se migró la sección `dns.servers` al formato nuevo (`type: local`) par
 Como red de seguridad para pruebas, la app también reintenta cada variante activando el entorno `ENABLE_DEPRECATED_LEGACY_DNS_SERVERS=true` por si el binario o perfil requiere compatibilidad temporal.
 
 Se cambió la estrategia TUN para Android VPN: la app crea la interfaz con `VpnService.Builder.establish()`, duplica su FD al descriptor esperado por sing-box (FD 7) y escribe `"fd": 7` en el inbound `tun`. Así sing-box reutiliza el TUN del sistema y no intenta crearlo por su cuenta.
+
+
+## Flujo recomendado para `libbox.aar` (2 etapas)
+
+1. **Construir artifacts desde upstream**
+   - Ejecuta el workflow `Build libbox.aar` (`.github/workflows/build-libbox-aar.yml`).
+   - Descarga el artifact `libbox-vless-<version>`.
+
+2. **Importar artifacts en esta app**
+   - Copia `libbox.aar` y `libbox-sources.jar` a `app/libs/libbox/`.
+   - Script de ayuda:
+
+```bash
+scripts/install_libbox_artifacts.sh <directorio_descargado_del_artifact>
+```
+
+### Notas de integración
+
+- El build detecta automáticamente `app/libs/libbox/libbox.aar` y lo agrega como dependencia local.
+- Si `libbox.aar` no está presente, el proyecto sigue compilando con el flujo CLI actual.
+- La carpeta `app/libs/libbox/` está preparada para que puedas alternar fácilmente entre `libbox.aar` y `libbox-legacy.aar` según tu estrategia.

@@ -1,5 +1,6 @@
 package com.example.localvpn
 
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import java.io.FileInputStream
@@ -24,6 +25,8 @@ class LocalVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .addRoute("0.0.0.0", 0)
 
+        excludeTermuxFromTun(builder)
+
         vpnInterface = builder.establish() ?: return START_NOT_STICKY
 
         running.set(true)
@@ -42,6 +45,15 @@ class LocalVpnService : VpnService() {
         } catch (_: IOException) {
         }
         super.onDestroy()
+    }
+
+
+    private fun excludeTermuxFromTun(builder: Builder) {
+        try {
+            builder.addDisallowedApplication(TERMUX_PACKAGE)
+        } catch (_: PackageManager.NameNotFoundException) {
+            // Termux no está instalado; no se requiere exclusión.
+        }
     }
 
     private fun forwardPacketsToLocalProxy() {
@@ -76,5 +88,6 @@ class LocalVpnService : VpnService() {
         private const val PROXY_HOST = "127.0.0.1"
         private const val PROXY_PORT = 1080
         private const val PROXY_TIMEOUT_MS = 2500
+        private const val TERMUX_PACKAGE = "com.termux"
     }
 }

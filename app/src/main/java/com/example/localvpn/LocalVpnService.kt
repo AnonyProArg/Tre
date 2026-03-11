@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipFile
 
@@ -92,39 +93,109 @@ class LocalVpnService : VpnService() {
     }
 
     private fun startSingBox(binary: File, configFile: File) {
-        val command = mutableListOf(
-            binary.absolutePath,
-            "run",
-            "-c",
-            configFile.absolutePath
-        )
+        val commands = buildSingBoxCommandVariants(binary, configFile)
+        var lastFailure: String? = null
 
-        if (ENABLE_FORCE_PASSIVE_TUN_FLAG) {
-            command += "--force-passive-tun"
+        commands.forEachIndexed { index, command ->
+            emitLog("Intento ${index + 1}/${commands.size} ejecutando sing-box: ${command.joinToString(" ")}")
+
+            try {
+                val candidateProcess = ProcessBuilder(command)
+                    .directory(filesDir)
+                    .redirectErrorStream(false)
+                    .start()
+
+                Thread.sleep(PROCESS_BOOT_GRACE_MS)
+
+                if (!candidateProcess.isAlive) {
+                    val exitCode = candidateProcess.exitValue()
+                    val stdout = candidateProcess.inputStream.bufferedReader().readText().trim()
+                    val stderr = candidateProcess.errorStream.bufferedReader().readText().trim()
+
+                    if (stdout.isNotBlank()) emitLog("SB-OUT(boot) | $stdout")
+                    if (stderr.isNotBlank()) emitLog("SB-ERR(boot) | $stderr")
+
+                    lastFailure = "salida temprana código=$exitCode"
+                    emitLog("Intento ${index + 1} falló: $lastFailure")
+                    return@forEachIndexed
+                }
+
+                singBoxProcess = candidateProcess
+                attachProcessOutputReaders(candidateProcess)
+                attachProcessWatcher(candidateProcess)
+                emitLog("sing-box iniciado correctamente en intento ${index + 1}")
+                return
+            } catch (e: Exception) {
+                lastFailure = e.message
+                emitLog("Intento ${index + 1} lanzó excepción: ${e.message}")
+            }
         }
 
-        emitLog("Ejecutando sing-box: ${command.joinToString(" ")}")
+        throw IOException("No se pudo iniciar sing-box con ninguna variante. Último error: $lastFailure")
+    }
 
-        singBoxProcess = ProcessBuilder(command)
-            .directory(filesDir)
-            .redirectErrorStream(false)
-            .start()
+    private fun buildSingBoxCommandVariants(binary: File, configFile: File): List<List<String>> {
+        val forcePassiveTunSupported = supportsRunFlag(binary, "--force-passive-tun")
+        val variants = linkedSetOf<List<String>>()
 
+        if (forcePassiveTunSupported) {
+            variants += listOf(
+                binary.absolutePath,
+                "run",
+                "-c",
+                configFile.absolutePath,
+                "--force-passive-tun"
+            )
+        }
+
+        variants += listOf(binary.absolutePath, "run", "-c", configFile.absolutePath)
+        variants += listOf(binary.absolutePath, "run", "--config", configFile.absolutePath)
+
+        return variants.toList()
+    }
+
+    private fun supportsRunFlag(binary: File, flag: String): Boolean {
+        return try {
+            val helpProcess = ProcessBuilder(binary.absolutePath, "run", "-h")
+                .directory(filesDir)
+                .redirectErrorStream(true)
+                .start()
+
+            val completed = helpProcess.waitFor(HELP_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (!completed) {
+                helpProcess.destroyForcibly()
+                emitLog("WARN: timeout leyendo ayuda de sing-box; se omite flag $flag")
+                return false
+            }
+
+            val helpText = helpProcess.inputStream.bufferedReader().readText()
+            val supported = helpText.contains(flag)
+            emitLog("Compatibilidad de $flag: $supported")
+            supported
+        } catch (e: Exception) {
+            emitLog("WARN: no se pudo inspeccionar flags de sing-box: ${e.message}")
+            false
+        }
+    }
+
+    private fun attachProcessOutputReaders(process: Process) {
         stdoutThread = Thread {
-            singBoxProcess?.inputStream?.bufferedReader()?.useLines { lines ->
+            process.inputStream.bufferedReader()?.useLines { lines ->
                 lines.forEach { line -> emitLog("SB-OUT | $line") }
             }
         }.also { it.start() }
 
         stderrThread = Thread {
-            singBoxProcess?.errorStream?.bufferedReader()?.useLines { lines ->
+            process.errorStream.bufferedReader()?.useLines { lines ->
                 lines.forEach { line -> emitLog("SB-ERR | $line") }
             }
         }.also { it.start() }
+    }
 
+    private fun attachProcessWatcher(process: Process) {
         processWaitThread = Thread {
             try {
-                val exitCode = singBoxProcess?.waitFor()
+                val exitCode = process.waitFor()
                 if (running.get()) {
                     emitLog("sing-box finalizó con código: $exitCode")
                     running.set(false)
@@ -214,7 +285,8 @@ class LocalVpnService : VpnService() {
             "lib/x86/libsingbox.so"
         )
         private const val TERMUX_PACKAGE_NAME = "com.termux"
-        private const val ENABLE_FORCE_PASSIVE_TUN_FLAG = false
+        private const val HELP_COMMAND_TIMEOUT_SECONDS = 2L
+        private const val PROCESS_BOOT_GRACE_MS = 1200L
 
         private const val SING_BOX_CONFIG_JSON = """
             {

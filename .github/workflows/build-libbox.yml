@@ -23,7 +23,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
           cache: false
 
       - name: Setup Java
@@ -49,23 +49,37 @@ jobs:
       - name: Initialize gomobile
         run: gomobile init
 
-      - name: Build libbox.aar (VLESS + TUN only)
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+      - name: Show and patch build tags
         run: |
-          # Tags minimos: TUN stack (gvisor) + utls para TLS fingerprinting
-          # Sin: quic, wireguard, tailscale, dhcp, acme, clash_api, ccm, ocm
-          # VLESS esta en el core, no necesita tag
-          go run ./cmd/internal/build_libbox \
-            --target android \
-            -extra-tags with_gvisor,with_utls,badlinkname
+          echo "=== build_libbox/main.go tags originales ==="
+          grep -n "tags\|with_quic\|with_tail\|with_wire\|with_gvisor\|with_utls\|with_dhcp\|with_acme\|with_clash\|with_ccm\|with_ocm" \
+            ./cmd/internal/build_libbox/main.go || true
+
+          echo ""
+          echo "=== Parcheando: eliminando tags innecesarios ==="
+          # Quitar tags que causan problemas o no necesitamos
+          sed -i 's/with_quic,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_dhcp,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_acme,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_clash_api,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_tailscale,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_wireguard,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_ccm,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/with_ocm,\?//g' ./cmd/internal/build_libbox/main.go
+          sed -i 's/ts_omit[a-z_]*,\?//g' ./cmd/internal/build_libbox/main.go
+
+          echo ""
+          echo "=== Tags después del parche ==="
+          grep -n "tags\|with_" ./cmd/internal/build_libbox/main.go || true
+
+      - name: Build libbox.aar
+        run: |
+          go run ./cmd/internal/build_libbox --target android
 
       - name: Find output files
         run: |
-          echo "=== Archivos .aar encontrados ==="
-          find . -name "*.aar" 2>/dev/null
-          echo "=== Archivos .jar encontrados ==="
-          find . -name "*.jar" 2>/dev/null
+          echo "=== Archivos generados ==="
+          find . -name "*.aar" -o -name "*.jar" 2>/dev/null | grep -v "/.git/"
 
       - name: Upload libbox.aar
         uses: actions/upload-artifact@v4

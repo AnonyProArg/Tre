@@ -1,6 +1,7 @@
 package com.example.localvpn
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -30,6 +31,8 @@ class LocalVpnService : VpnService() {
                 .addAddress("172.19.0.1", 30)
                 .addRoute("0.0.0.0", 0)
                 .addDnsServer("8.8.8.8")
+
+            excludeTermuxFromVpn(builder)
 
             vpnInterface = builder.establish() ?: run {
                 Log.e(TAG, "No se pudo crear la interfaz TUN")
@@ -66,6 +69,14 @@ class LocalVpnService : VpnService() {
         vpnInterface = null
 
         super.onDestroy()
+    }
+
+    private fun excludeTermuxFromVpn(builder: Builder) {
+        try {
+            builder.addDisallowedApplication(TERMUX_PACKAGE_NAME)
+        } catch (e: PackageManager.NameNotFoundException) {
+            Log.w(TAG, "Termux no instalado; no se excluye de la VPN", e)
+        }
     }
 
     private fun startSingBox(binary: File, configFile: File) {
@@ -124,6 +135,7 @@ class LocalVpnService : VpnService() {
         private const val TAG = "LocalVpnService"
         private const val SING_BOX_LOG_TAG = "SING-BOX-CORE"
         private const val SING_BOX_ASSET_PATH = "sing-box/android-arm64/sing-box"
+        private const val TERMUX_PACKAGE_NAME = "com.termux"
 
         private const val SING_BOX_CONFIG_JSON = """
             {
@@ -136,7 +148,7 @@ class LocalVpnService : VpnService() {
                   {
                     "tag": "google-dns",
                     "address": "https://8.8.8.8",
-                    "detour": "direct-out"
+                    "detour": "proxy-out"
                   }
                 ],
                 "independent_cache": true
@@ -155,8 +167,10 @@ class LocalVpnService : VpnService() {
               ],
               "outbounds": [
                 {
-                  "type": "direct",
-                  "tag": "direct-out"
+                  "type": "socks",
+                  "tag": "proxy-out",
+                  "server": "127.0.0.1",
+                  "server_port": 1080
                 }
               ],
               "route": {
@@ -168,10 +182,10 @@ class LocalVpnService : VpnService() {
                   {
                     "inbound": "tun-in",
                     "action": "route",
-                    "outbound": "direct-out"
+                    "outbound": "proxy-out"
                   }
                 ],
-                "final": "direct-out"
+                "final": "proxy-out"
               }
             }
         """

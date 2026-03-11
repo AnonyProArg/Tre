@@ -6,9 +6,9 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.ZipFile
 
 class LocalVpnService : VpnService() {
 
@@ -16,6 +16,7 @@ class LocalVpnService : VpnService() {
     private var singBoxProcess: Process? = null
     private var stdoutThread: Thread? = null
     private var stderrThread: Thread? = null
+    private var processWaitThread: Thread? = null
     private val running = AtomicBoolean(false)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -42,7 +43,7 @@ class LocalVpnService : VpnService() {
             }
             emitLog("Interfaz TUN creada correctamente")
 
-            val singBoxBinary = prepareSingBoxBinary()
+            val singBoxBinary = resolveSingBoxBinary()
             val configFile = writeSingBoxConfig()
 
             startSingBox(singBoxBinary, configFile)
@@ -63,6 +64,7 @@ class LocalVpnService : VpnService() {
 
         stdoutThread?.interrupt()
         stderrThread?.interrupt()
+        processWaitThread?.interrupt()
 
         singBoxProcess?.destroy()
         singBoxProcess = null
@@ -90,13 +92,16 @@ class LocalVpnService : VpnService() {
     }
 
     private fun startSingBox(binary: File, configFile: File) {
-        val command = listOf(
+        val command = mutableListOf(
             binary.absolutePath,
             "run",
             "-c",
-            configFile.absolutePath,
-            "--force-passive-tun"
+            configFile.absolutePath
         )
+
+        if (ENABLE_FORCE_PASSIVE_TUN_FLAG) {
+            command += "--force-passive-tun"
+        }
 
         emitLog("Ejecutando sing-box: ${command.joinToString(" ")}")
 
@@ -116,31 +121,75 @@ class LocalVpnService : VpnService() {
                 lines.forEach { line -> emitLog("SB-ERR | $line") }
             }
         }.also { it.start() }
+
+        processWaitThread = Thread {
+            try {
+                val exitCode = singBoxProcess?.waitFor()
+                if (running.get()) {
+                    emitLog("sing-box finalizó con código: $exitCode")
+                    running.set(false)
+                    stopSelf()
+                }
+            } catch (_: InterruptedException) {
+                // Servicio detenido explícitamente.
+            }
+        }.also { it.start() }
     }
 
-    private fun prepareSingBoxBinary(): File {
-        val targetDir = File(filesDir, "sing-box").apply { mkdirs() }
+    private fun resolveSingBoxBinary(): File {
+        val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
+        val nativeBinary = File(nativeLibDir, SING_BOX_NATIVE_LIBRARY_NAME)
+
+        emitLog("nativeLibraryDir runtime: $nativeLibDir")
+
+        if (nativeBinary.exists()) {
+            emitLog("Binario nativo detectado en: ${nativeBinary.absolutePath}")
+            emitLog("Permiso de ejecución nativo: ${nativeBinary.canExecute()}")
+            return nativeBinary
+        }
+
+        emitLog("WARN: no existe en nativeLibraryDir, intentando extraer desde APK")
+        val extracted = extractNativeBinaryFromInstalledApk()
+        emitLog("Binario extraído desde APK en: ${extracted.absolutePath}")
+        emitLog("Permiso de ejecución extraído: ${extracted.canExecute()}")
+        return extracted
+    }
+
+    private fun extractNativeBinaryFromInstalledApk(): File {
+        val appInfo = applicationContext.applicationInfo
+        val apkCandidates = buildList {
+            add(appInfo.sourceDir)
+            appInfo.splitSourceDirs?.let { addAll(it) }
+        }
+
+        val targetDir = File(filesDir, "native-bin").apply { mkdirs() }
         val targetBinary = File(targetDir, "sing-box")
 
-        assets.open(SING_BOX_ASSET_PATH).use { input ->
-            FileOutputStream(targetBinary).use { output ->
-                input.copyTo(output)
+        apkCandidates.forEach { apkPath ->
+            ZipFile(apkPath).use { zip ->
+                APK_LIB_ENTRY_CANDIDATES.firstNotNullOfOrNull { entryPath ->
+                    zip.getEntry(entryPath)?.let { entry ->
+                        zip.getInputStream(entry).use { input ->
+                            targetBinary.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        targetBinary
+                    }
+                }?.let {
+                    val executableApplied = it.setExecutable(true, false)
+                    val readableApplied = it.setReadable(true, false)
+                    emitLog(
+                        "Permisos aplicados para fallback (x/r): $executableApplied/$readableApplied"
+                    )
+                    return it
+                }
             }
         }
 
-        if (targetBinary.exists()) {
-            val executableApplied = targetBinary.setExecutable(true, false)
-            val readableApplied = targetBinary.setReadable(true, false)
-            emitLog("Permisos aplicados (x/r): $executableApplied/$readableApplied para ${targetBinary.absolutePath}")
-            if (!targetBinary.canExecute()) {
-                emitLog("WARN: el binario sigue sin permiso de ejecución")
-            }
-        } else {
-            emitLog("ERROR: binario no encontrado en ${targetBinary.absolutePath}")
-        }
-
-        emitLog("Binario preparado en: ${targetBinary.absolutePath}")
-        return targetBinary
+        throw IOException(
+            "Binario nativo no encontrado. Buscado en nativeLibraryDir=${appInfo.nativeLibraryDir} " +
+                "y entradas APK=${APK_LIB_ENTRY_CANDIDATES.joinToString()} " +
+                "de ${apkCandidates.joinToString()}"
+        )
     }
 
     private fun writeSingBoxConfig(): File {
@@ -157,8 +206,15 @@ class LocalVpnService : VpnService() {
 
     companion object {
         private const val TAG = "LocalVpnService"
-        private const val SING_BOX_ASSET_PATH = "sing-box/android-arm64/sing-box"
+        private const val SING_BOX_NATIVE_LIBRARY_NAME = "libsingbox.so"
+        private val APK_LIB_ENTRY_CANDIDATES = listOf(
+            "lib/arm64-v8a/libsingbox.so",
+            "lib/armeabi-v7a/libsingbox.so",
+            "lib/x86_64/libsingbox.so",
+            "lib/x86/libsingbox.so"
+        )
         private const val TERMUX_PACKAGE_NAME = "com.termux"
+        private const val ENABLE_FORCE_PASSIVE_TUN_FLAG = false
 
         private const val SING_BOX_CONFIG_JSON = """
             {

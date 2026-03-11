@@ -22,9 +22,7 @@ El workflow `.github/workflows/android-build.yml` compila el APK debug en cada p
 
 El binario se empaqueta como librería nativa para que Android lo extraiga en `nativeLibraryDir` con permisos de ejecución.
 
-En CI, el workflow descomprime `sing-box-1.13.2-android-arm64.tar.gz`, renombra `sing-box` a `libsingbox.so` y lo coloca en:
-
-- `app/src/main/jniLibs/arm64-v8a/libsingbox.so`
+De forma clásica, el proyecto lo prepara en build-time con Gradle (task `prepareSingBoxJniLibs`) a partir de `sing-box-1.13.2-android-arm64.tar.gz`, lo renombra a `libsingbox.so` y lo publica como `jniLibs` para `arm64-v8a`.
 
 En runtime, la app lo ejecuta desde:
 

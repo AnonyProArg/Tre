@@ -3,6 +3,18 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val singBoxArchive = rootProject.file("sing-box-1.13.2-android-arm64.tar.gz")
+val generatedJniLibsDir = layout.buildDirectory.dir("generated/singbox/jniLibs")
+
+val prepareSingBoxJniLibs by tasks.registering(Copy::class) {
+    from(tarTree(resources.gzip(singBoxArchive))) {
+        include("sing-box-1.13.2-android-arm64/sing-box")
+        eachFile { path = "arm64-v8a/libsingbox.so" }
+        includeEmptyDirs = false
+    }
+    into(generatedJniLibsDir)
+}
+
 android {
     namespace = "com.example.localvpn"
     compileSdk = 34
@@ -15,6 +27,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -27,6 +42,18 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDir(generatedJniLibsDir.get().asFile)
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -34,6 +61,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+tasks.named("preBuild") {
+    dependsOn(prepareSingBoxJniLibs)
 }
 
 dependencies {

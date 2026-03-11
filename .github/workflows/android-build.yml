@@ -123,7 +123,7 @@ jobs:
           ls -lh app/libs/libbox/
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

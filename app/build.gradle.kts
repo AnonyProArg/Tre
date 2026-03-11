@@ -13,7 +13,6 @@ val prepareSingBoxJniLibs by tasks.registering(Copy::class) {
         includeEmptyDirs = false
     }
     into(generatedJniLibsDir)
-    fileMode = 0b110100100
 }
 
 android {

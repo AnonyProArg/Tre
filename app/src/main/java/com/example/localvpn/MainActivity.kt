@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
         if (requestCode != REQUEST_CODE_PREPARE_VPN) return
 
         if (resultCode == RESULT_OK) {
-            startService(Intent(this, LocalVpnService::class.java))
+            startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_START))
             Toast.makeText(this, "VPN local iniciada", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "Permiso de VPN denegado", Toast.LENGTH_SHORT).show()

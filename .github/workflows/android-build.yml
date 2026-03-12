@@ -32,10 +32,10 @@ jobs:
       - name: Setup Android SDK & NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK r27
+      - name: Install NDK r28
         run: |
-          sdkmanager "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+          sdkmanager "ndk;28.1.13356709"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.1.13356709" >> $GITHUB_ENV
 
       - name: Install gomobile (SagerNet fork)
         run: |
@@ -45,39 +45,6 @@ jobs:
 
       - name: Initialize gomobile
         run: gomobile init
-
-      - name: Patch build tags (VLESS + TUN only)
-        run: |
-          python3 - << 'PYEOF'
-          with open('./cmd/internal/build_libbox/main.go', 'r') as f:
-              content = f.read()
-
-          remove_tags = [
-              'with_quic',
-              'with_dhcp',
-              'with_acme',
-              'with_clash_api',
-              'with_tailscale',
-              'with_wireguard',
-              'with_ccm',
-              'with_ocm',
-              'with_naive_outbound',
-          ]
-
-          for tag in remove_tags:
-              content = content.replace(f'"{tag}", ', '')
-              content = content.replace(f', "{tag}"', '')
-              content = content.replace(f'"{tag}"', '')
-
-          lines = content.split('\n')
-          lines = [l for l in lines if 'ts_omit' not in l]
-          content = '\n'.join(lines)
-
-          with open('./cmd/internal/build_libbox/main.go', 'w') as f:
-              f.write(content)
-
-          print("Parche aplicado")
-          PYEOF
 
       - name: Build libbox.aar
         run: go run ./cmd/internal/build_libbox --target android

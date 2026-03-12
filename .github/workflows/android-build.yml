@@ -32,10 +32,10 @@ jobs:
       - name: Setup Android SDK & NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK r27
+      - name: Install NDK r28
         run: |
-          sdkmanager "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+          sdkmanager "ndk;28.1.13356709"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.1.13356709" >> $GITHUB_ENV
 
       - name: Install gomobile (SagerNet fork)
         run: |

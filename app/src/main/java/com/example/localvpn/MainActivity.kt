@@ -1,5 +1,8 @@
 package com.example.localvpn
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
@@ -16,7 +19,11 @@ import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var hwidLabel: TextView
     private lateinit var accountLabel: TextView
+    private lateinit var expireLabel: TextView
+    private lateinit var daysLabel: TextView
+    private lateinit var planLabel: TextView
     private lateinit var verificationStatus: TextView
     private lateinit var connectionStatus: TextView
     private lateinit var serverSpinner: Spinner
@@ -33,12 +40,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        hwidLabel = findViewById(R.id.hwidLabel)
         accountLabel = findViewById(R.id.accountLabel)
+        expireLabel = findViewById(R.id.expireLabel)
+        daysLabel = findViewById(R.id.daysLabel)
+        planLabel = findViewById(R.id.planLabel)
         verificationStatus = findViewById(R.id.verificationStatus)
         connectionStatus = findViewById(R.id.connectionStatus)
         serverSpinner = findViewById(R.id.serverSpinner)
 
         hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
+        hwidLabel.text = "ID: $hwid"
 
         serverOptions = buildServerOptions(AppSettings.getTunnelDomain(this))
         serverSpinner.adapter = ArrayAdapter(
@@ -46,6 +58,12 @@ class MainActivity : ComponentActivity() {
             android.R.layout.simple_spinner_dropdown_item,
             serverOptions.map { it.label }
         )
+
+        findViewById<Button>(R.id.copyIdButton).setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("hwid", hwid))
+            Toast.makeText(this, "ID copiado", Toast.LENGTH_SHORT).show()
+        }
 
         findViewById<Button>(R.id.startVpnButton).setOnClickListener { authenticateThenStart() }
 
@@ -96,6 +114,9 @@ class MainActivity : ComponentActivity() {
                 val info = BlackTunnelClient.auth(hwid, tunnelDomain)
                 runOnUiThread {
                     accountLabel.text = "Cuenta: ${info.name}"
+                    expireLabel.text = "Expira: ${info.expire}"
+                    daysLabel.text = "Días restantes: ${info.days}"
+                    planLabel.text = if (info.premium) "Plan: PREMIUM" else "Plan: ESTÁNDAR"
                     verificationStatus.text = getString(R.string.status_verified)
                     lastAuthOk = true
                     lastAuthDomain = tunnelDomain

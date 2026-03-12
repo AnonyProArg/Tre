@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Local VPN Proxy</string>
     <string name="start_vpn">Iniciar VPN</string>
-    <string name="description">La app ejecuta sing-box y muestra en pantalla el flujo y logs del proceso (sin depender de Termux).</string>
+    <string name="description">La app ejecuta libbox (AAR) y muestra en pantalla el flujo y logs del proceso.</string>
     <string name="logs_label">Logs en vivo dentro de la app</string>
     <string name="clear_logs">Limpiar</string>
 </resources>

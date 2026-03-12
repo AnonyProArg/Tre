@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var verificationStatus: TextView
     private lateinit var connectionStatus: TextView
     private lateinit var serverSpinner: Spinner
+    private lateinit var tunStackSpinner: Spinner
 
     private var hwid: String = ""
     private var lastAuthOk = false
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private data class ServerOption(val label: String, val domain: String)
 
     private lateinit var serverOptions: List<ServerOption>
+    private val stackOptions = listOf("system", "gvisor", "mixed")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,16 +50,29 @@ class MainActivity : ComponentActivity() {
         verificationStatus = findViewById(R.id.verificationStatus)
         connectionStatus = findViewById(R.id.connectionStatus)
         serverSpinner = findViewById(R.id.serverSpinner)
+        tunStackSpinner = findViewById(R.id.tunStackSpinner)
 
         hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
         hwidLabel.text = "ID: $hwid"
 
-        serverOptions = buildServerOptions(AppSettings.getTunnelDomain(this))
+        val savedDomain = AppSettings.getTunnelDomain(this)
+        serverOptions = buildServerOptions(savedDomain)
         serverSpinner.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_dropdown_item,
             serverOptions.map { it.label }
         )
+        val serverIndex = serverOptions.indexOfFirst { it.domain.equals(savedDomain, ignoreCase = true) }
+            .coerceAtLeast(0)
+        serverSpinner.setSelection(serverIndex)
+
+        tunStackSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            stackOptions
+        )
+        val savedStack = AppSettings.getTunStack(this)
+        tunStackSpinner.setSelection(stackOptions.indexOf(savedStack).coerceAtLeast(0))
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -86,8 +101,8 @@ class MainActivity : ComponentActivity() {
         val options = mutableListOf(
             ServerOption("🇦🇷 Servidor 1", "2.brawlpass.com.ar")
         )
-        if (savedDomain.isNotBlank() && savedDomain != options.first().domain) {
-            options.add(ServerOption("🌐 Servidor 2", savedDomain))
+        if (savedDomain.isNotBlank() && options.none { it.domain.equals(savedDomain, ignoreCase = true) }) {
+            options.add(ServerOption("🌐 Servidor guardado", savedDomain))
         }
         return options
     }
@@ -97,9 +112,14 @@ class MainActivity : ComponentActivity() {
         return serverOptions.getOrNull(idx)?.domain ?: serverOptions.first().domain
     }
 
+    private fun selectedTunStack(): String {
+        val idx = tunStackSpinner.selectedItemPosition.coerceAtLeast(0)
+        return stackOptions.getOrNull(idx) ?: "system"
+    }
+
     private fun authenticateThenStart() {
         val tunnelDomain = selectedDomain()
-        val tunStack = AppSettings.getTunStack(this)
+        val tunStack = selectedTunStack()
         val smuxStreams = AppSettings.getSmuxMaxStreams(this)
 
         AppSettings.setTunnelDomain(this, tunnelDomain)
@@ -159,7 +179,7 @@ class MainActivity : ComponentActivity() {
                 .setAction(LocalVpnService.ACTION_START)
                 .putExtra(LocalVpnService.EXTRA_HWID, hwid)
                 .putExtra(LocalVpnService.EXTRA_TUNNEL_DOMAIN, lastAuthDomain)
-                .putExtra(LocalVpnService.EXTRA_TUN_STACK, AppSettings.getTunStack(this))
+                .putExtra(LocalVpnService.EXTRA_TUN_STACK, selectedTunStack())
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, AppSettings.getSmuxMaxStreams(this))
 
             startService(serviceIntent)

@@ -2,6 +2,7 @@
     <string name="app_name">Tre VPN</string>
     <string name="simple_subtitle">Simple, eficiente y estable para uso diario.</string>
     <string name="server_label">Servidor</string>
+    <string name="tun_stack_label">TUN stack</string>
     <string name="start_vpn">Conectar</string>
     <string name="stop_vpn">Desconectar</string>
     <string name="copy_id">Copiar ID</string>

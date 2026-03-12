@@ -25,6 +25,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private var commandServer: CommandServer? = null
     private var tunFd: ParcelFileDescriptor? = null
+    private var proxyHandle: BlackTunnelClient.ProxyHandle? = null
     private var libboxServiceStarted = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -43,12 +44,25 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         try {
             emitLog("Iniciando VPN con libbox")
+
+            val hwid = BlackTunnelClient.getOrCreateHwid(filesDir)
+            emitLog("HWID cargado: $hwid")
+
+            val authInfo = BlackTunnelClient.auth(hwid)
+            emitLog("Auth OK: ${authInfo.name} (${authInfo.days} días)")
+
+            proxyHandle = BlackTunnelClient.startProxy(
+                hwid = hwid,
+                protectSocket = { socket -> protect(socket) },
+                logger = ::emitLog
+            )
+
             setupLibboxOnce()
 
             commandServer = CommandServer(this, this)
             val overrideOptions = OverrideOptions()
             disableClashIfPresent(overrideOptions)
-            commandServer?.startOrReloadService(DEFAULT_CONFIG, overrideOptions)
+            commandServer?.startOrReloadService(buildClientConfigJson(), overrideOptions)
             libboxServiceStarted = true
 
             emitLog("VPN iniciada correctamente")
@@ -93,6 +107,14 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             if (stopError == null) stopError = e
         } finally {
             commandServer = null
+        }
+
+        try {
+            proxyHandle?.stop()
+        } catch (e: Exception) {
+            if (stopError == null) stopError = e
+        } finally {
+            proxyHandle = null
         }
 
         try {
@@ -145,14 +167,12 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             try {
                 builder.addDisallowedApplication(excludePackages.next())
             } catch (_: Exception) {
-                // ignorar paquete inválido/no instalado
             }
         }
 
         try {
             builder.addDisallowedApplication(packageName)
         } catch (_: Exception) {
-            // ignorar
         }
 
         tunFd?.close()
@@ -167,7 +187,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
-
     override fun useProcFS(): Boolean = false
 
     override fun findConnectionOwner(
@@ -179,23 +198,14 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     ): ConnectionOwner = ConnectionOwner()
 
     override fun getInterfaces(): NetworkInterfaceIterator? = null
-
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {}
-
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {}
-
     override fun underNetworkExtension(): Boolean = false
-
     override fun includeAllNetworks(): Boolean = false
-
     override fun readWIFIState(): WIFIState? = null
-
     override fun systemCertificates(): StringIterator? = null
-
     override fun clearDNSCache() {}
-
     override fun sendNotification(notification: Notification) {}
-
     override fun localDNSTransport(): LocalDNSTransport? = null
 
     override fun getSystemProxyStatus(): SystemProxyStatus {
@@ -230,7 +240,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         super.onDestroy()
     }
 
-
     private fun disableClashIfPresent(overrideOptions: OverrideOptions) {
         try {
             val clazz = overrideOptions.javaClass
@@ -257,6 +266,66 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
+    private fun buildClientConfigJson(): String {
+        return """
+            {
+              "log": { "level": "info", "timestamp": true },
+              "inbounds": [
+                {
+                  "type": "tun",
+                  "tag": "tun-in",
+                  "inet4_address": "172.19.0.1/30",
+                  "auto_route": true,
+                  "strict_route": true,
+                  "sniff": true
+                }
+              ],
+              "outbounds": [
+                {
+                  "type": "vless",
+                  "tag": "proxy",
+                  "server": "127.0.0.1",
+                  "server_port": 10800,
+                  "uuid": "11111111-1111-1111-1111-111111111111",
+                  "flow": "",
+                  "transport": {
+                    "type": "ws",
+                    "path": "/",
+                    "headers": {
+                      "Host": "1.brawlpass.com.ar"
+                    }
+                  },
+                  "multiplex": {
+                    "enabled": true,
+                    "protocol": "smux",
+                    "max_streams": 32
+                  },
+                  "packet_encoding": "xudp"
+                },
+                { "type": "direct", "tag": "direct" },
+                { "type": "block",  "tag": "block" }
+              ],
+              "route": {
+                "rules": [
+                  {
+                    "ip_cidr": ["2606:4700::6812:16b7/128"],
+                    "outbound": "direct"
+                  },
+                  {
+                    "domain": ["1.brawlpass.com.ar", "emailmarketing.personal.com.ar"],
+                    "outbound": "direct"
+                  },
+                  {
+                    "ip_cidr": ["127.0.0.1/32"],
+                    "outbound": "direct"
+                  }
+                ],
+                "final": "proxy"
+              }
+            }
+        """.trimIndent()
+    }
+
     private fun emitLog(message: String) {
         Log.i(TAG, message)
         VpnLogStore.add(message)
@@ -268,54 +337,5 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val ACTION_STOP = "STOP_VPN"
         private val libboxSetupLock = Any()
         private val isLibboxSetupDone = AtomicBoolean(false)
-
-        private val DEFAULT_CONFIG = """
-            {
-              "log": { "level": "info", "timestamp": true },
-              "dns": {
-                "servers": [
-                  { "type": "local", "tag": "local-dns" }
-                ]
-              },
-              "inbounds": [
-                {
-                  "type": "tun",
-                  "tag": "tun-in",
-                  "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
-                  "mtu": 1500,
-                  "auto_route": true,
-                  "strict_route": false,
-                  "stack": "system"
-                }
-              ],
-              "outbounds": [
-                {
-                  "type": "vless",
-                  "tag": "vless-out",
-                  "server": "TU_SERVIDOR",
-                  "server_port": 443,
-                  "uuid": "TU_UUID",
-                  "tls": {
-                    "enabled": true,
-                    "server_name": "TU_SNI"
-                  },
-                  "multiplex": {
-                    "enabled": true,
-                    "protocol": "smux"
-                  },
-                  "packet_encoding": "xudp"
-                },
-                {
-                  "type": "direct",
-                  "tag": "direct"
-                }
-              ],
-              "route": {
-                "rules": [
-                  { "inbound": "tun-in", "outbound": "vless-out" }
-                ]
-              }
-            }
-        """.trimIndent()
     }
 }

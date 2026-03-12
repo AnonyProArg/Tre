@@ -15,16 +15,54 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <TextView
+        android:id="@+id/hwidLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/hwid_label"
+        app:layout_constraintEnd_toStartOf="@+id/copyIdButton"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/title" />
+
+    <Button
+        android:id="@+id/copyIdButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/copy_id"
+        app:layout_constraintBaseline_toBaselineOf="@id/hwidLabel"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/accountLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/account_unknown"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/hwidLabel" />
+
     <Button
         android:id="@+id/startVpnButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:text="@string/start_vpn"
-        app:layout_constraintEnd_toStartOf="@id/clearLogsButton"
+        app:layout_constraintEnd_toStartOf="@id/stopVpnButton"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/title"
-        app:layout_constraintWidth_percent="0.68" />
+        app:layout_constraintTop_toBottomOf="@id/accountLabel"
+        app:layout_constraintWidth_percent="0.45" />
+
+    <Button
+        android:id="@+id/stopVpnButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="@string/stop_vpn"
+        app:layout_constraintBaseline_toBaselineOf="@id/startVpnButton"
+        app:layout_constraintEnd_toStartOf="@id/clearLogsButton"
+        app:layout_constraintStart_toEndOf="@id/startVpnButton" />
 
     <Button
         android:id="@+id/clearLogsButton"
@@ -34,7 +72,7 @@
         android:text="@string/clear_logs"
         app:layout_constraintBaseline_toBaselineOf="@id/startVpnButton"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@id/startVpnButton" />
+        app:layout_constraintStart_toEndOf="@id/stopVpnButton" />
 
     <TextView
         android:id="@+id/logsLabel"

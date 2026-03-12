@@ -1,10 +1,12 @@
 # Local VPN Proxy (Android)
 
-Aplicación Android simple que:
+Aplicación Android en modo pruebas para validar el flujo completo:
 
-1. Muestra un botón para solicitar permiso de `VpnService`.
-2. Crea una interfaz VPN virtual (TUN) al aceptar el permiso.
-3. Inicia `libbox` desde un `libbox.aar` y enruta tráfico al proxy local `127.0.0.1:1080`.
+1. Genera/lee HWID local (`filesDir/hwid.txt`).
+2. Hace auth contra servidor remoto con ese HWID.
+3. Levanta proxy local en `127.0.0.1:10800`.
+4. Inicia `libbox` (AAR) con TUN y outbound VLESS apuntando al proxy local.
+5. Muestra logs en vivo y estado de cuenta en la UI.
 
 ## Compilar localmente
 
@@ -14,21 +16,13 @@ gradle assembleDebug
 
 ## Workflow CI
 
-El workflow `.github/workflows/android-build.yml` ejecuta un flujo de 2 jobs:
+El workflow `.github/workflows/android-build.yml` ejecuta 2 jobs:
 
 1. `build-libbox`: compila `libbox.aar` y `libbox-sources.jar` desde `SagerNet/sing-box`.
 2. `build-apk`: descarga esos artifacts a `app/libs/libbox/` y compila el APK debug.
 
-## Flujo de artifacts `libbox.aar`
+## Flujo runtime actual
 
-Para local/manual puedes seguir usando:
-
-```bash
-scripts/install_libbox_artifacts.sh <directorio_descargado_del_artifact>
-```
-
-La app carga automáticamente `*.aar` desde `app/libs/libbox/` vía Gradle.
-
-## Runtime engine
-
-La app usa únicamente `libbox` (AAR) mediante `CommandServer` + `PlatformInterface`.
+- `MainActivity` muestra HWID, permite copiarlo y hace auth antes de pedir permiso VPN.
+- `LocalVpnService` vuelve a validar auth, inicia el proxy local y luego arranca `libbox`.
+- El socket del túnel remoto se protege con `VpnService.protect(socket)` para evitar loop de ruteo.

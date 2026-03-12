@@ -1,5 +1,8 @@
 package com.example.localvpn
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
@@ -7,10 +10,15 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var logsTextView: TextView
+    private lateinit var hwidLabel: TextView
+    private lateinit var accountLabel: TextView
+
+    private var hwid: String = ""
 
     private val logListener: (String) -> Unit = { line ->
         runOnUiThread {
@@ -23,9 +31,25 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
 
         logsTextView = findViewById(R.id.logsTextView)
+        hwidLabel = findViewById(R.id.hwidLabel)
+        accountLabel = findViewById(R.id.accountLabel)
+
+        hwid = BlackTunnelClient.getOrCreateHwid(filesDir)
+        hwidLabel.text = "HWID: $hwid"
+
+        findViewById<Button>(R.id.copyIdButton).setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("hwid", hwid))
+            Toast.makeText(this, "HWID copiado", Toast.LENGTH_SHORT).show()
+        }
 
         findViewById<Button>(R.id.startVpnButton).setOnClickListener {
-            requestVpnPermissionAndStart()
+            authenticateThenStart()
+        }
+
+        findViewById<Button>(R.id.stopVpnButton).setOnClickListener {
+            startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_STOP))
+            Toast.makeText(this, "VPN detenida", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.clearLogsButton).setOnClickListener {
@@ -45,6 +69,26 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         VpnLogStore.removeListener(logListener)
         super.onStop()
+    }
+
+    private fun authenticateThenStart() {
+        Toast.makeText(this, "Verificando HWID...", Toast.LENGTH_SHORT).show()
+
+        thread(name = "auth-thread") {
+            try {
+                val info = BlackTunnelClient.auth(hwid)
+                runOnUiThread {
+                    accountLabel.text = "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire}" +
+                        if (info.premium) " | PREMIUM" else ""
+                    requestVpnPermissionAndStart()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    accountLabel.text = "Cuenta: ${e.message}"
+                    Toast.makeText(this, "Auth falló: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun requestVpnPermissionAndStart() {

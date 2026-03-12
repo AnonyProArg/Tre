@@ -1,15 +1,15 @@
 <resources>
-    <string name="app_name">Local VPN Proxy</string>
+    <string name="app_name">Tre VPN</string>
+    <string name="simple_subtitle">Interfaz simple, conexión directa y estable.</string>
+    <string name="server_label">Servidor</string>
     <string name="start_vpn">Conectar</string>
     <string name="stop_vpn">Desconectar</string>
-    <string name="description">Flujo BlackTunnel: HWID, auth, proxy local y motor libbox.</string>
-    <string name="logs_label">Logs en vivo dentro de la app</string>
-    <string name="clear_logs">Limpiar</string>
-    <string name="copy_id">Copiar ID</string>
-    <string name="save_domain">Guardar</string>
-    <string name="tunnel_domain_hint">Dominio del túnel (ej: 2.brawlpass.com.ar)</string>
-    <string name="tun_stack_label">TUN stack</string>
-    <string name="smux_hint">SMUX</string>
-    <string name="hwid_label">HWID: cargando…</string>
-    <string name="account_unknown">Cuenta: sin verificar</string>
+    <string name="account_unknown">Cuenta: pendiente de verificación</string>
+    <string name="status_unverified">⚪ Verificación: pendiente</string>
+    <string name="status_verified">🟢 Verificación: correcta</string>
+    <string name="status_connecting">🟡 Estado: conectando…</string>
+    <string name="status_connected">🟢 Estado: conectado</string>
+    <string name="status_disconnected">🔴 Estado: desconectado</string>
+    <string name="battery_title">Estabilidad en segundo plano</string>
+    <string name="battery_button">Quitar restricción de batería</string>
 </resources>

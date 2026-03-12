@@ -420,6 +420,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                   }
                 ],
                 "auto_detect_interface": true,
+                "default_interface": "wlan0",
                 "final": "proxy"
               }
             }

@@ -3,104 +3,91 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:padding="20dp">
 
     <TextView
         android:id="@+id/title"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="@string/description"
-        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+        android:text="@string/app_name"
+        android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
     <TextView
-        android:id="@+id/hwidLabel"
+        android:id="@+id/subtitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="@string/hwid_label"
-        app:layout_constraintEnd_toStartOf="@+id/copyIdButton"
+        android:layout_marginTop="4dp"
+        android:text="@string/simple_subtitle"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/title" />
 
-    <Button
-        android:id="@+id/copyIdButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/copy_id"
-        app:layout_constraintBaseline_toBaselineOf="@id/hwidLabel"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <EditText
-        android:id="@+id/tunnelDomainInput"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:hint="@string/tunnel_domain_hint"
-        android:inputType="textUri"
-        android:singleLine="true"
-        app:layout_constraintEnd_toStartOf="@+id/saveDomainButton"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/hwidLabel" />
-
-    <Button
-        android:id="@+id/saveDomainButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:text="@string/save_domain"
-        app:layout_constraintBaseline_toBaselineOf="@id/tunnelDomainInput"
-        app:layout_constraintEnd_toEndOf="parent" />
-
     <TextView
-        android:id="@+id/tunStackLabel"
+        android:id="@+id/serverLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/tun_stack_label"
+        android:layout_marginTop="20dp"
+        android:text="@string/server_label"
+        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tunnelDomainInput" />
+        app:layout_constraintTop_toBottomOf="@id/subtitle" />
 
     <Spinner
-        android:id="@+id/tunStackSpinner"
+        android:id="@+id/serverSpinner"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        app:layout_constraintBaseline_toBaselineOf="@id/tunStackLabel"
-        app:layout_constraintEnd_toStartOf="@+id/smuxStreamsInput"
-        app:layout_constraintStart_toEndOf="@id/tunStackLabel" />
-
-    <EditText
-        android:id="@+id/smuxStreamsInput"
-        android:layout_width="80dp"
-        android:layout_height="wrap_content"
-        android:hint="@string/smux_hint"
-        android:inputType="number"
-        android:singleLine="true"
-        app:layout_constraintBaseline_toBaselineOf="@id/tunStackLabel"
-        app:layout_constraintEnd_toEndOf="parent" />
+        android:layout_marginTop="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/serverLabel" />
 
     <TextView
         android:id="@+id/accountLabel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="16dp"
         android:text="@string/account_unknown"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tunStackLabel" />
+        app:layout_constraintTop_toBottomOf="@id/serverSpinner" />
+
+    <TextView
+        android:id="@+id/verificationStatus"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/status_unverified"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/accountLabel" />
+
+    <TextView
+        android:id="@+id/connectionStatus"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/status_disconnected"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/verificationStatus" />
 
     <Button
         android:id="@+id/startVpnButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="20dp"
         android:text="@string/start_vpn"
         app:layout_constraintEnd_toStartOf="@id/stopVpnButton"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/accountLabel"
-        app:layout_constraintWidth_percent="0.45" />
+        app:layout_constraintTop_toBottomOf="@id/connectionStatus"
+        app:layout_constraintWidth_percent="0.48" />
 
     <Button
         android:id="@+id/stopVpnButton"
@@ -109,52 +96,28 @@
         android:layout_marginStart="8dp"
         android:text="@string/stop_vpn"
         app:layout_constraintBaseline_toBaselineOf="@id/startVpnButton"
-        app:layout_constraintEnd_toStartOf="@id/clearLogsButton"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/startVpnButton" />
 
-    <Button
-        android:id="@+id/clearLogsButton"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:text="@string/clear_logs"
-        app:layout_constraintBaseline_toBaselineOf="@id/startVpnButton"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@id/stopVpnButton" />
-
     <TextView
-        android:id="@+id/logsLabel"
+        android:id="@+id/batteryLabel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/logs_label"
-        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+        android:layout_marginTop="24dp"
+        android:text="@string/battery_title"
+        android:textAppearance="@style/TextAppearance.Material3.TitleSmall"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/startVpnButton" />
 
-    <ScrollView
-        android:id="@+id/logsScroll"
+    <Button
+        android:id="@+id/batteryButton"
         android:layout_width="0dp"
-        android:layout_height="0dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:background="#111111"
-        android:fillViewport="true"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:text="@string/battery_button"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/logsLabel">
-
-        <TextView
-            android:id="@+id/logsTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="12dp"
-            android:textColor="#40FF40"
-            android:textIsSelectable="true"
-            android:textSize="12sp"
-            android:typeface="monospace" />
-
-    </ScrollView>
+        app:layout_constraintTop_toBottomOf="@id/batteryLabel" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

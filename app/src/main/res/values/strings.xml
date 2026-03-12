@@ -1,7 +1,13 @@
 <resources>
     <string name="app_name">Local VPN Proxy</string>
-    <string name="start_vpn">Iniciar VPN</string>
-    <string name="description">La app ejecuta sing-box y muestra en pantalla el flujo y logs del proceso (sin depender de Termux).</string>
+    <string name="start_vpn">Conectar</string>
+    <string name="stop_vpn">Desconectar</string>
+    <string name="description">Flujo BlackTunnel: HWID, auth, proxy local y motor libbox.</string>
     <string name="logs_label">Logs en vivo dentro de la app</string>
     <string name="clear_logs">Limpiar</string>
+    <string name="copy_id">Copiar ID</string>
+    <string name="save_domain">Guardar</string>
+    <string name="tunnel_domain_hint">Dominio del túnel (ej: 1.brawlpass.com.ar)</string>
+    <string name="hwid_label">HWID: cargando…</string>
+    <string name="account_unknown">Cuenta: sin verificar</string>
 </resources>

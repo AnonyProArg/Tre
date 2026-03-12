@@ -21,6 +21,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var tunnelDomainInput: EditText
 
     private var hwid: String = ""
+    private var lastAuthOk = false
+    private var lastAuthDomain = ""
 
     private val logListener: (String) -> Unit = { line ->
         runOnUiThread {
@@ -101,10 +103,13 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     accountLabel.text = "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire}" +
                         if (info.premium) " | PREMIUM" else ""
+                    lastAuthOk = true
+                    lastAuthDomain = tunnelDomain
                     requestVpnPermissionAndStart()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    lastAuthOk = false
                     accountLabel.text = "Cuenta: ${e.message}"
                     Toast.makeText(this, "Auth falló: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -127,7 +132,15 @@ class MainActivity : ComponentActivity() {
         if (requestCode != REQUEST_CODE_PREPARE_VPN) return
 
         if (resultCode == RESULT_OK) {
-            startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_START))
+            if (!lastAuthOk) {
+                Toast.makeText(this, "Debes autenticar antes de conectar", Toast.LENGTH_LONG).show()
+                return
+            }
+            val serviceIntent = Intent(this, LocalVpnService::class.java)
+                .setAction(LocalVpnService.ACTION_START)
+                .putExtra(LocalVpnService.EXTRA_HWID, hwid)
+                .putExtra(LocalVpnService.EXTRA_TUNNEL_DOMAIN, lastAuthDomain)
+            startService(serviceIntent)
             Toast.makeText(this, "VPN local iniciada", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "Permiso de VPN denegado", Toast.LENGTH_SHORT).show()

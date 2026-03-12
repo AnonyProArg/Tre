@@ -27,16 +27,18 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var tunFd: ParcelFileDescriptor? = null
     private var proxyHandle: BlackTunnelClient.ProxyHandle? = null
     private var libboxServiceStarted = false
+    private var lastStartIntent: Intent? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartIntent = intent
         when (intent?.action) {
             ACTION_STOP -> stopVpn()
-            else -> startVpn()
+            else -> startVpn(intent)
         }
         return START_STICKY
     }
 
-    private fun startVpn() {
+    private fun startVpn(intent: Intent?) {
         if (commandServer != null) {
             emitLog("VPN ya está iniciada")
             return
@@ -45,13 +47,10 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         try {
             emitLog("Iniciando VPN con libbox")
 
-            val hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir, ::emitLog)
-            val tunnelDomain = AppSettings.getTunnelDomain(this)
-            emitLog("HWID cargado: $hwid")
-            emitLog("Dominio túnel: $tunnelDomain")
-
-            val authInfo = BlackTunnelClient.auth(hwid, tunnelDomain, ::emitLog)
-            emitLog("Auth OK: ${authInfo.name} (${authInfo.days} días)")
+            val hwid = intentHwidOrLocal()
+            val tunnelDomain = intentDomainOrSettings()
+            emitLog("HWID sesión: $hwid")
+            emitLog("Dominio túnel sesión: $tunnelDomain")
 
             proxyHandle = BlackTunnelClient.startProxy(
                 hwid = hwid,
@@ -74,6 +73,21 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             Log.e(TAG, "Error iniciando VPN", e)
             stopVpn()
         }
+    }
+
+
+    private fun intentHwidOrLocal(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_HWID)?.trim().orEmpty()
+        if (fromIntent.isNotBlank()) return fromIntent
+        emitLog("WARN EXTRA_HWID ausente, usando HWID local")
+        return BlackTunnelClient.getOrCreateHwid(noBackupFilesDir, ::emitLog)
+    }
+
+    private fun intentDomainOrSettings(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_TUNNEL_DOMAIN)?.trim().orEmpty()
+        if (fromIntent.isNotBlank()) return fromIntent
+        emitLog("WARN EXTRA_TUNNEL_DOMAIN ausente, usando ajuste guardado")
+        return AppSettings.getTunnelDomain(this)
     }
 
     private fun setupLibboxOnce() {
@@ -129,6 +143,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
 
         libboxServiceStarted = false
+        lastStartIntent = null
 
         if (stopError != null) {
             emitLog("WARN deteniendo VPN: ${stopError.message}")
@@ -338,6 +353,8 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         private const val TAG = "LocalVpnService"
         const val ACTION_START = "START_VPN"
         const val ACTION_STOP = "STOP_VPN"
+        const val EXTRA_HWID = "extra_hwid"
+        const val EXTRA_TUNNEL_DOMAIN = "extra_tunnel_domain"
         private val libboxSetupLock = Any()
         private val isLibboxSetupDone = AtomicBoolean(false)
     }

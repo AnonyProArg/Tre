@@ -16,4 +16,50 @@ gradle assembleDebug
 
 ## Workflow CI
 
-El workflow `.github/workflows/android-build.yml` compila el APK debug en cada push/PR usando Gradle sin wrapper binario en el repositorio.
+El workflow `.github/workflows/android-build.yml` ejecuta un flujo de 2 jobs:
+
+1. `build-libbox`: compila `libbox.aar` y `libbox-sources.jar` desde `SagerNet/sing-box`.
+2. `build-apk`: descarga esos artifacts a `app/libs/libbox/` y compila el APK debug.
+
+## Binario sing-box (forma nativa clásica en Android)
+
+El binario se empaqueta como librería nativa para que Android lo extraiga en `nativeLibraryDir` con permisos de ejecución.
+
+De forma clásica, el proyecto lo prepara en build-time con Gradle (task `prepareSingBoxJniLibs`) a partir de `sing-box-1.13.2-android-arm64.tar.gz`, lo renombra a `libsingbox.so` y lo publica como `jniLibs` para `arm64-v8a`.
+
+En runtime, la app lo ejecuta desde:
+
+- `${applicationInfo.nativeLibraryDir}/libsingbox.so`
+
+La resolución de ruta se hace en tiempo de ejecución (sin hardcodear `/data/app/...`) usando `applicationContext.applicationInfo.nativeLibraryDir` y el nombre `libsingbox.so`.
+
+Si por políticas del dispositivo/instalación no aparece extraído en `nativeLibraryDir`, la app aplica fallback robusto: lee `lib*/libsingbox.so` desde el APK instalado (`sourceDir`/`splitSourceDirs`), lo copia a `files/native-bin/sing-box`, aplica permisos y ejecuta desde ahí.
+
+Nota de compatibilidad: en esta versión se ejecuta `sing-box run -c <config>` sin `--force-passive-tun`, porque el binario actual reporta ese flag como no soportado (`unknown flag`).
+
+La ejecución ahora prueba variantes de comando para adaptarse a cambios entre versiones de sing-box: inspecciona `sing-box run -h`, usa `--force-passive-tun` solo si existe, y si un intento termina enseguida prueba la siguiente variante sin romper el servicio.
+
+Además se migró la sección `dns.servers` al formato nuevo (`type: local`) para compatibilidad con sing-box 1.12+ y evitar el fatal de `legacy DNS servers`.
+
+Como red de seguridad para pruebas, la app también reintenta cada variante activando el entorno `ENABLE_DEPRECATED_LEGACY_DNS_SERVERS=true` por si el binario o perfil requiere compatibilidad temporal.
+
+Se cambió la estrategia TUN para Android VPN: la app crea la interfaz con `VpnService.Builder.establish()`, duplica su FD al descriptor esperado por sing-box (FD 7) y escribe `"fd": 7` en el inbound `tun`. Así sing-box reutiliza el TUN del sistema y no intenta crearlo por su cuenta.
+
+
+## Flujo de artifacts `libbox.aar`
+
+Para local/manual puedes seguir usando:
+
+```bash
+scripts/install_libbox_artifacts.sh <directorio_descargado_del_artifact>
+```
+
+La app carga automáticamente `*.aar` desde `app/libs/libbox/` vía Gradle.
+
+
+## Runtime engine (migración al AAR)
+
+La app ahora intenta **primero** iniciar `libbox` desde el AAR (`libbox.aar`) usando `CommandServer` y `PlatformInterface` (con logs de detección y arranque).
+
+- Config primario: `config-libbox.json` con inbound `tun` usando `auto_route`.
+- Si `libbox` no inicia, se usa fallback al flujo CLI de `sing-box` ya existente.

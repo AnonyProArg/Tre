@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var logsTextView: TextView
     private lateinit var hwidLabel: TextView
     private lateinit var accountLabel: TextView
+    private lateinit var tunnelDomainInput: EditText
 
     private var hwid: String = ""
 
@@ -33,9 +35,21 @@ class MainActivity : ComponentActivity() {
         logsTextView = findViewById(R.id.logsTextView)
         hwidLabel = findViewById(R.id.hwidLabel)
         accountLabel = findViewById(R.id.accountLabel)
+        tunnelDomainInput = findViewById(R.id.tunnelDomainInput)
 
         hwid = BlackTunnelClient.getOrCreateHwid(filesDir)
         hwidLabel.text = "HWID: $hwid"
+        tunnelDomainInput.setText(AppSettings.getTunnelDomain(this))
+
+        findViewById<Button>(R.id.saveDomainButton).setOnClickListener {
+            val value = tunnelDomainInput.text.toString().trim()
+            if (value.isBlank()) {
+                Toast.makeText(this, "Dominio inválido", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            AppSettings.setTunnelDomain(this, value)
+            Toast.makeText(this, "Dominio guardado", Toast.LENGTH_SHORT).show()
+        }
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -72,11 +86,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun authenticateThenStart() {
+        val tunnelDomain = tunnelDomainInput.text.toString().trim()
+        if (tunnelDomain.isBlank()) {
+            Toast.makeText(this, "Debes poner un dominio", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AppSettings.setTunnelDomain(this, tunnelDomain)
         Toast.makeText(this, "Verificando HWID...", Toast.LENGTH_SHORT).show()
 
         thread(name = "auth-thread") {
             try {
-                val info = BlackTunnelClient.auth(hwid)
+                val info = BlackTunnelClient.auth(hwid, tunnelDomain)
                 runOnUiThread {
                     accountLabel.text = "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire}" +
                         if (info.premium) " | PREMIUM" else ""

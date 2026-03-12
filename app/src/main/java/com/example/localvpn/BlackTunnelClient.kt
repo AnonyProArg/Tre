@@ -18,7 +18,6 @@ object BlackTunnelClient {
     private const val PROXY_IPV6 = "2606:4700::6812:16b7"
     private const val PROXY_HOST = "emailmarketing.personal.com.ar"
     private const val PROXY_PORT = 80
-    private const val SERVER_HOST = "1.brawlpass.com.ar"
 
     const val LOCAL_HOST = "127.0.0.1"
     const val LOCAL_PORT = 10800
@@ -58,8 +57,8 @@ object BlackTunnelClient {
         return hwid
     }
 
-    fun auth(hwid: String): AccountInfo {
-        val (socket, headers) = openChannel("auth", hwid)
+    fun auth(hwid: String, tunnelDomain: String): AccountInfo {
+        val (socket, headers) = openChannel("auth", hwid, tunnelDomain)
         try {
             socket?.close()
         } catch (_: Exception) {
@@ -83,6 +82,7 @@ object BlackTunnelClient {
 
     fun startProxy(
         hwid: String,
+        tunnelDomain: String,
         protectSocket: (Socket) -> Unit,
         logger: (String) -> Unit
     ): ProxyHandle {
@@ -100,7 +100,7 @@ object BlackTunnelClient {
                 try {
                     val client = server.accept()
                     thread(name = "bt-proxy-client", isDaemon = true) {
-                        handleClient(client, hwid, protectSocket, logger)
+                        handleClient(client, hwid, tunnelDomain, protectSocket, logger)
                     }
                 } catch (_: SocketTimeoutException) {
                     // poll stop flag
@@ -116,10 +116,11 @@ object BlackTunnelClient {
     private fun handleClient(
         client: Socket,
         hwid: String,
+        tunnelDomain: String,
         protectSocket: (Socket) -> Unit,
         logger: (String) -> Unit
     ) {
-        val (tunnelSocket, headers) = openChannel("tunnel", hwid, protectSocket)
+        val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, protectSocket)
         if (tunnelSocket == null || headers["x-status"] != "OK") {
             logger("WARN túnel rechazado: ${headers["x-status"] ?: "ERROR"}")
             closeQuietly(client)
@@ -158,12 +159,13 @@ object BlackTunnelClient {
     private fun openChannel(
         action: String,
         hwid: String,
+        tunnelDomain: String,
         protectSocket: ((Socket) -> Unit)? = null
     ): Pair<Socket?, Map<String, String>> {
         val p1 = "GET / HTTP/1.1\r\nHost: $PROXY_HOST\r\n\r\n".toByteArray()
         val p2 = (
             "- / HTTP/1.1\r\n" +
-                "Host: $SERVER_HOST\r\n" +
+                "Host: $tunnelDomain\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Connection: Upgrade\r\n" +
                 "Action: $action\r\n" +

@@ -46,13 +46,16 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             emitLog("Iniciando VPN con libbox")
 
             val hwid = BlackTunnelClient.getOrCreateHwid(filesDir)
+            val tunnelDomain = AppSettings.getTunnelDomain(this)
             emitLog("HWID cargado: $hwid")
+            emitLog("Dominio túnel: $tunnelDomain")
 
-            val authInfo = BlackTunnelClient.auth(hwid)
+            val authInfo = BlackTunnelClient.auth(hwid, tunnelDomain)
             emitLog("Auth OK: ${authInfo.name} (${authInfo.days} días)")
 
             proxyHandle = BlackTunnelClient.startProxy(
                 hwid = hwid,
+                tunnelDomain = tunnelDomain,
                 protectSocket = { socket -> protect(socket) },
                 logger = ::emitLog
             )
@@ -62,7 +65,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             commandServer = CommandServer(this, this)
             val overrideOptions = OverrideOptions()
             disableClashIfPresent(overrideOptions)
-            commandServer?.startOrReloadService(buildClientConfigJson(), overrideOptions)
+            commandServer?.startOrReloadService(buildClientConfigJson(tunnelDomain), overrideOptions)
             libboxServiceStarted = true
 
             emitLog("VPN iniciada correctamente")
@@ -266,7 +269,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
-    private fun buildClientConfigJson(): String {
+    private fun buildClientConfigJson(tunnelDomain: String): String {
         return """
             {
               "log": { "level": "info", "timestamp": true },
@@ -292,7 +295,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     "type": "ws",
                     "path": "/",
                     "headers": {
-                      "Host": "1.brawlpass.com.ar"
+                      "Host": "${tunnelDomain}"
                     }
                   },
                   "multiplex": {
@@ -312,7 +315,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     "outbound": "direct"
                   },
                   {
-                    "domain": ["1.brawlpass.com.ar", "emailmarketing.personal.com.ar"],
+                    "domain": ["${tunnelDomain}", "emailmarketing.personal.com.ar"],
                     "outbound": "direct"
                   },
                   {

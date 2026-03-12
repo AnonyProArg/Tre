@@ -23,6 +23,6 @@ El workflow `.github/workflows/android-build.yml` ejecuta 2 jobs:
 
 ## Flujo runtime actual
 
-- `MainActivity` muestra HWID, permite copiarlo y hace auth antes de pedir permiso VPN.
-- `LocalVpnService` vuelve a validar auth, inicia el proxy local y luego arranca `libbox`.
+- `MainActivity` muestra HWID, permite copiarlo, configurar/guardar el dominio del túnel y hace auth antes de pedir permiso VPN.
+- `LocalVpnService` usa el dominio guardado, vuelve a validar auth, inicia el proxy local y luego arranca `libbox`.
 - El socket del túnel remoto se protege con `VpnService.protect(socket)` para evitar loop de ruteo.

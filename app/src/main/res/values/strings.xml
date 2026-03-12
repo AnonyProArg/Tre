@@ -6,6 +6,8 @@
     <string name="logs_label">Logs en vivo dentro de la app</string>
     <string name="clear_logs">Limpiar</string>
     <string name="copy_id">Copiar ID</string>
+    <string name="save_domain">Guardar</string>
+    <string name="tunnel_domain_hint">Dominio del túnel (ej: 1.brawlpass.com.ar)</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
 </resources>

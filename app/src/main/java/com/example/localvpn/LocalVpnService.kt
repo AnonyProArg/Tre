@@ -1,481 +1,442 @@
 package com.example.localvpn
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
-import android.system.Os
 import android.util.Log
-import java.io.File
-import java.io.IOException
-import java.util.concurrent.TimeUnit
+import androidx.core.app.NotificationCompat
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.CommandServerHandler
+import io.nekohasekai.libbox.ConnectionOwner
+import io.nekohasekai.libbox.InterfaceUpdateListener
+import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.LocalDNSTransport
+import io.nekohasekai.libbox.NetworkInterfaceIterator
+import io.nekohasekai.libbox.Notification
+import io.nekohasekai.libbox.OverrideOptions
+import io.nekohasekai.libbox.PlatformInterface
+import io.nekohasekai.libbox.SetupOptions
+import io.nekohasekai.libbox.StringIterator
+import io.nekohasekai.libbox.SystemProxyStatus
+import io.nekohasekai.libbox.TunOptions
+import io.nekohasekai.libbox.WIFIState
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.zip.ZipFile
 
-class LocalVpnService : VpnService() {
+class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
-    private var vpnInterface: ParcelFileDescriptor? = null
-    private var singBoxProcess: Process? = null
-    private var stdoutThread: Thread? = null
-    private var stderrThread: Thread? = null
-    private var processWaitThread: Thread? = null
-    private var preparedTunFd: Int? = null
-    private var libboxRuntime: LibboxRuntime? = null
-    private val running = AtomicBoolean(false)
+    private var commandServer: CommandServer? = null
+    private var tunFd: ParcelFileDescriptor? = null
+    private var proxyHandle: BlackTunnelClient.ProxyHandle? = null
+    private var libboxServiceStarted = false
+    private var lastStartIntent: Intent? = null
+    private var isStopping = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (running.get()) {
-            emitLog("VPN service ya está activo")
-            return START_STICKY
+        lastStartIntent = intent
+        when (intent?.action) {
+            ACTION_STOP -> stopVpn()
+            else -> startVpn(intent)
+        }
+        return START_STICKY
+    }
+
+    private fun startVpn(intent: Intent?) {
+        if (commandServer != null) {
+            emitLog("VPN ya está iniciada")
+            return
         }
 
-        return try {
-            emitLog("Iniciando VPN service")
+        try {
+            isStopping = false
+            startForegroundCompat()
+            emitLog("Iniciando VPN con libbox")
 
-            val builder = Builder()
-                .setSession("TreSingBoxSession")
-                .setMtu(1500)
-                .addAddress("172.19.0.1", 30)
-                .addRoute("0.0.0.0", 0)
-                .addDnsServer("8.8.8.8")
+            val hwid = intentHwidOrLocal()
+            val tunnelDomain = intentDomainOrSettings()
+            val tunStack = intentTunStackOrSettings()
+            val smuxMaxStreams = intentSmuxOrSettings()
 
-            excludeTermuxFromVpn(builder)
+            emitLog("HWID sesión: $hwid")
+            emitLog("Dominio túnel sesión: $tunnelDomain")
+            emitLog("TUN stack sesión: $tunStack")
+            emitLog("SMUX max_streams sesión: $smuxMaxStreams")
 
-            vpnInterface = builder.establish() ?: run {
-                emitLog("ERROR: no se pudo crear la interfaz TUN")
-                return START_NOT_STICKY
-            }
-            emitLog("Interfaz TUN creada correctamente")
+            proxyHandle = BlackTunnelClient.startProxy(
+                hwid = hwid,
+                tunnelDomain = tunnelDomain,
+                protectSocket = { socket -> protect(socket) },
+                logger = ::emitLog
+            )
 
-            val libboxConfig = writeLibboxConfig()
-            val libbox = LibboxRuntime(::emitLog)
-            val libboxStarted = libbox.tryStart(this, vpnInterface!!, libboxConfig.readText())
+            setupLibboxOnce()
 
-            if (libboxStarted) {
-                libboxRuntime = libbox
-                running.set(true)
-                emitLog("VPN + libbox en ejecución")
-                return START_STICKY
-            }
+            commandServer = CommandServer(this, this)
+            val overrideOptions = OverrideOptions()
+            disableClashIfPresent(overrideOptions)
+            commandServer?.startOrReloadService(buildClientConfigJson(tunnelDomain, tunStack, smuxMaxStreams), overrideOptions)
+            attachInterfaceProtectorIfAvailable(commandServer)
+            libboxServiceStarted = true
 
-            emitLog("WARN: fallback a ejecución CLI de sing-box")
-            val singBoxBinary = resolveSingBoxBinary()
-            val tunFdForSingBox = prepareTunFdForSingBox(vpnInterface!!)
-            val configFile = writeSingBoxConfig(tunFdForSingBox)
-
-            startSingBox(singBoxBinary, configFile)
-            running.set(true)
-            emitLog("VPN + sing-box (CLI fallback) en ejecución")
-            START_STICKY
+            emitLog("VPN iniciada correctamente")
         } catch (e: Exception) {
-            emitLog("ERROR iniciando VPN con sing-box: ${e.message}")
-            Log.e(TAG, "Error iniciando VPN con sing-box", e)
-            stopSelf()
-            START_NOT_STICKY
+            emitLog("ERROR iniciando VPN: ${e.message}")
+            Log.e(TAG, "Error iniciando VPN", e)
+            stopVpn()
         }
+    }
+
+    private fun intentHwidOrLocal(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_HWID)?.trim().orEmpty()
+        if (fromIntent.isNotBlank()) return fromIntent
+        emitLog("WARN EXTRA_HWID ausente, usando HWID local")
+        return BlackTunnelClient.getOrCreateHwid(noBackupFilesDir, ::emitLog)
+    }
+
+    private fun intentDomainOrSettings(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_TUNNEL_DOMAIN)?.trim().orEmpty()
+        if (fromIntent.isNotBlank()) return fromIntent
+        emitLog("WARN EXTRA_TUNNEL_DOMAIN ausente, usando ajuste guardado")
+        return AppSettings.getTunnelDomain(this)
+    }
+
+    private fun intentTunStackOrSettings(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_TUN_STACK)?.trim().orEmpty()
+        if (fromIntent.isNotBlank()) return fromIntent
+        emitLog("WARN EXTRA_TUN_STACK ausente, usando ajuste guardado")
+        return AppSettings.getTunStack(this)
+    }
+
+    private fun intentSmuxOrSettings(): Int {
+        val fromIntent = lastStartIntent?.getIntExtra(EXTRA_SMUX_MAX_STREAMS, -1) ?: -1
+        if (fromIntent > 0) return fromIntent
+        emitLog("WARN EXTRA_SMUX_MAX_STREAMS ausente, usando ajuste guardado")
+        return AppSettings.getSmuxMaxStreams(this)
+    }
+
+    private fun startForegroundCompat() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(NOTIF_CHANNEL_ID, "VPN Service", NotificationManager.IMPORTANCE_MIN)
+            manager.createNotificationChannel(channel)
+        }
+        val notification = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle("VPN activa")
+            .setContentText("BlackTunnel en segundo plano")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setOngoing(true)
+            .build()
+        startForeground(NOTIF_ID, notification)
+    }
+
+    private fun attachInterfaceProtectorIfAvailable(server: Any?) {
+        if (server == null) return
+        try {
+            val method = server.javaClass.methods.firstOrNull {
+                it.name.contains("InterfaceProtector", ignoreCase = true) && it.parameterCount == 1
+            } ?: return
+            val protectorType = method.parameterTypes[0]
+            val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                protectorType.classLoader,
+                arrayOf(protectorType)
+            ) { _, called, args ->
+                if (called.name.contains("protect", ignoreCase = true) && args?.isNotEmpty() == true) {
+                    val fd = (args[0] as? Number)?.toInt() ?: -1
+                    if (fd >= 0) {
+                        val ok = protect(fd)
+                        return@newProxyInstance if (called.returnType == java.lang.Boolean.TYPE) ok else null
+                    }
+                }
+                if (called.returnType == java.lang.Boolean.TYPE) false else null
+            }
+            method.invoke(server, proxy)
+            emitLog("InterfaceProtector enlazado")
+        } catch (e: Exception) {
+            emitLog("WARN InterfaceProtector no disponible: ${e.message}")
+        }
+    }
+
+    private fun setupLibboxOnce() {
+        if (isLibboxSetupDone.get()) return
+        synchronized(libboxSetupLock) {
+            if (isLibboxSetupDone.get()) return
+            val opts = SetupOptions().apply {
+                basePath = filesDir.absolutePath
+                workingPath = filesDir.absolutePath
+                tempPath = cacheDir.absolutePath
+                fixAndroidStack = true
+                debug = true
+            }
+            Libbox.setup(opts)
+            isLibboxSetupDone.set(true)
+            emitLog("Libbox.setup() aplicado")
+        }
+    }
+
+    private fun stopVpn() {
+        if (isStopping) return
+        isStopping = true
+
+        var stopError: Exception? = null
+
+        try {
+            if (libboxServiceStarted) {
+                commandServer?.closeService()
+            }
+        } catch (e: Exception) {
+            stopError = e
+        }
+
+        try {
+            commandServer?.close()
+        } catch (e: Exception) {
+            if (stopError == null) stopError = e
+        } finally {
+            commandServer = null
+        }
+
+        try {
+            val hwid = lastStartIntent?.getStringExtra(EXTRA_HWID)?.trim().orEmpty()
+            val domain = lastStartIntent?.getStringExtra(EXTRA_TUNNEL_DOMAIN)?.trim().orEmpty()
+            if (hwid.isNotBlank() && domain.isNotBlank()) {
+                BlackTunnelClient.notifyDisconnect(hwid, domain, ::emitLog)
+            }
+            proxyHandle?.stop()
+        } catch (e: Exception) {
+            if (stopError == null) stopError = e
+        } finally {
+            proxyHandle = null
+        }
+
+        try {
+            tunFd?.close()
+        } catch (e: Exception) {
+            if (stopError == null) stopError = e
+        } finally {
+            tunFd = null
+        }
+
+        libboxServiceStarted = false
+        lastStartIntent = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+
+        if (stopError != null) {
+            emitLog("WARN deteniendo VPN: ${stopError.message}")
+            Log.w(TAG, "Error deteniendo VPN", stopError)
+        } else {
+            emitLog("VPN detenida")
+        }
+
+        stopSelf()
+    }
+
+    override fun openTun(options: TunOptions): Int {
+        emitLog("openTun llamado por libbox (mtu=${options.getMTU()})")
+
+        val builder = Builder()
+            .setSession("TreLibboxSession")
+            .setMtu(options.getMTU())
+            .setBlocking(false)
+
+        val inet4 = options.getInet4Address()
+        while (inet4.hasNext()) {
+            val prefix = inet4.next()
+            builder.addAddress(prefix.address(), prefix.prefix())
+        }
+
+        val inet6 = options.getInet6Address()
+        while (inet6.hasNext()) {
+            val prefix = inet6.next()
+            builder.addAddress(prefix.address(), prefix.prefix())
+        }
+
+        if (options.getAutoRoute()) {
+            builder.addRoute("0.0.0.0", 0)
+            builder.addRoute("::", 0)
+        }
+
+        val excludePackages = options.getExcludePackage()
+        while (excludePackages.hasNext()) {
+            try {
+                builder.addDisallowedApplication(excludePackages.next())
+            } catch (_: Exception) {
+            }
+        }
+
+        try {
+            builder.addDisallowedApplication(packageName)
+        } catch (_: Exception) {
+        }
+
+        tunFd?.close()
+        tunFd = builder.establish() ?: throw IllegalStateException("No se pudo crear TUN")
+
+        emitLog("TUN creado fd=${tunFd!!.fd}")
+        return tunFd!!.detachFd()
+    }
+
+    override fun autoDetectInterfaceControl(fd: Int) {
+        protect(fd)
+    }
+
+    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
+    override fun useProcFS(): Boolean = false
+
+    override fun findConnectionOwner(
+        ipProtocol: Int,
+        sourceAddress: String,
+        sourcePort: Int,
+        destinationAddress: String,
+        destinationPort: Int
+    ): ConnectionOwner = ConnectionOwner()
+
+    override fun getInterfaces(): NetworkInterfaceIterator? = null
+    override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {}
+    override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {}
+    override fun underNetworkExtension(): Boolean = false
+    override fun includeAllNetworks(): Boolean = false
+    override fun readWIFIState(): WIFIState? = null
+    override fun systemCertificates(): StringIterator? = null
+    override fun clearDNSCache() {}
+    override fun sendNotification(notification: Notification) {}
+    override fun localDNSTransport(): LocalDNSTransport? = null
+
+    override fun getSystemProxyStatus(): SystemProxyStatus {
+        val status = SystemProxyStatus()
+        status.available = false
+        status.enabled = false
+        return status
+    }
+
+    override fun serviceReload() {
+        emitLog("serviceReload recibido")
+    }
+
+    override fun serviceStop() {
+        emitLog("serviceStop recibido")
+        stopVpn()
+    }
+
+    override fun setSystemProxyEnabled(enabled: Boolean) {}
+
+    override fun writeDebugMessage(message: String) {
+        emitLog("libbox: $message")
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        emitLog("App removida de recientes, servicio continúa en foreground")
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onRevoke() {
+        stopVpn()
+        super.onRevoke()
     }
 
     override fun onDestroy() {
-        running.set(false)
-        emitLog("Deteniendo servicio VPN")
-
-        stdoutThread?.interrupt()
-        stderrThread?.interrupt()
-        processWaitThread?.interrupt()
-
-        singBoxProcess?.destroy()
-        singBoxProcess = null
-        libboxRuntime?.stop()
-        libboxRuntime = null
-        closePreparedTunFd()
-
-        try {
-            vpnInterface?.close()
-        } catch (e: IOException) {
-            emitLog("WARN cerrando VPN: ${e.message}")
-            Log.w(TAG, "Error cerrando interfaz VPN", e)
-        }
-        vpnInterface = null
-
-        emitLog("Servicio VPN detenido")
+        stopVpn()
         super.onDestroy()
     }
 
-    private fun excludeTermuxFromVpn(builder: Builder) {
+    private fun disableClashIfPresent(overrideOptions: OverrideOptions) {
         try {
-            builder.addDisallowedApplication(TERMUX_PACKAGE_NAME)
-            emitLog("Termux excluido del túnel: $TERMUX_PACKAGE_NAME")
-        } catch (e: PackageManager.NameNotFoundException) {
-            emitLog("Termux no instalado; sin exclusión")
-            Log.w(TAG, "Termux no instalado; no se excluye de la VPN", e)
-        }
-    }
-
-    private fun startSingBox(binary: File, configFile: File) {
-        val attempts = buildSingBoxCommandVariants(binary, configFile)
-        var lastFailure: String? = null
-
-        attempts.forEachIndexed { index, attempt ->
-            emitLog("Intento ${index + 1}/${attempts.size} ejecutando sing-box: ${attempt.command.joinToString(" ")}")
-            if (attempt.enableLegacyDnsCompatEnv) {
-                emitLog("Intento ${index + 1}: activando compat ENABLE_DEPRECATED_LEGACY_DNS_SERVERS=true")
-            }
-
-            try {
-                val candidateProcess = ProcessBuilder(attempt.command)
-                    .directory(filesDir)
-                    .redirectErrorStream(false)
-                    .apply {
-                        if (attempt.enableLegacyDnsCompatEnv) {
-                            environment()[ENABLE_DEPRECATED_LEGACY_DNS_SERVERS_KEY] = "true"
-                        }
+            val clazz = overrideOptions.javaClass
+            clazz.methods
+                .filter { it.name.contains("clash", ignoreCase = true) && it.parameterCount == 1 }
+                .forEach { method ->
+                    val type = method.parameterTypes[0]
+                    when (type) {
+                        java.lang.Boolean.TYPE, java.lang.Boolean::class.java -> method.invoke(overrideOptions, false)
+                        String::class.java -> method.invoke(overrideOptions, "")
                     }
-                    .start()
-
-                Thread.sleep(PROCESS_BOOT_GRACE_MS)
-
-                if (!candidateProcess.isAlive) {
-                    val exitCode = candidateProcess.exitValue()
-                    val stdout = candidateProcess.inputStream.bufferedReader().readText().trim()
-                    val stderr = candidateProcess.errorStream.bufferedReader().readText().trim()
-
-                    if (stdout.isNotBlank()) emitLog("SB-OUT(boot) | $stdout")
-                    if (stderr.isNotBlank()) emitLog("SB-ERR(boot) | $stderr")
-
-                    lastFailure = "salida temprana código=$exitCode"
-                    emitLog("Intento ${index + 1} falló: $lastFailure")
-                    return@forEachIndexed
                 }
 
-                singBoxProcess = candidateProcess
-                attachProcessOutputReaders(candidateProcess)
-                attachProcessWatcher(candidateProcess)
-                emitLog("sing-box iniciado correctamente en intento ${index + 1}")
-                return
-            } catch (e: Exception) {
-                lastFailure = e.message
-                emitLog("Intento ${index + 1} lanzó excepción: ${e.message}")
-            }
-        }
-
-        throw IOException("No se pudo iniciar sing-box con ninguna variante. Último error: $lastFailure")
-    }
-
-    private fun buildSingBoxCommandVariants(binary: File, configFile: File): List<SingBoxCommandAttempt> {
-        val forcePassiveTunSupported = supportsRunFlag(binary, "--force-passive-tun")
-        val variants = linkedSetOf<List<String>>()
-
-        if (forcePassiveTunSupported) {
-            variants += listOf(
-                binary.absolutePath,
-                "run",
-                "-c",
-                configFile.absolutePath,
-                "--force-passive-tun"
-            )
-        }
-
-        variants += listOf(binary.absolutePath, "run", "-c", configFile.absolutePath)
-        variants += listOf(binary.absolutePath, "run", "--config", configFile.absolutePath)
-
-        return buildList {
-            variants.forEach { command ->
-                add(SingBoxCommandAttempt(command = command, enableLegacyDnsCompatEnv = false))
-            }
-            variants.forEach { command ->
-                add(SingBoxCommandAttempt(command = command, enableLegacyDnsCompatEnv = true))
-            }
-        }
-    }
-
-    private fun supportsRunFlag(binary: File, flag: String): Boolean {
-        return try {
-            val helpProcess = ProcessBuilder(binary.absolutePath, "run", "-h")
-                .directory(filesDir)
-                .redirectErrorStream(true)
-                .start()
-
-            val completed = helpProcess.waitFor(HELP_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            if (!completed) {
-                helpProcess.destroyForcibly()
-                emitLog("WARN: timeout leyendo ayuda de sing-box; se omite flag $flag")
-                return false
-            }
-
-            val helpText = helpProcess.inputStream.bufferedReader().readText()
-            val supported = helpText.contains(flag)
-            emitLog("Compatibilidad de $flag: $supported")
-            supported
+            clazz.fields
+                .filter { it.name.contains("clash", ignoreCase = true) }
+                .forEach { field ->
+                    when (field.type) {
+                        java.lang.Boolean.TYPE, java.lang.Boolean::class.java -> field.set(overrideOptions, false)
+                        String::class.java -> field.set(overrideOptions, "")
+                    }
+                }
         } catch (e: Exception) {
-            emitLog("WARN: no se pudo inspeccionar flags de sing-box: ${e.message}")
-            false
+            emitLog("WARN no se pudo ajustar overrideOptions (clash): ${e.message}")
         }
     }
 
-    private fun attachProcessOutputReaders(process: Process) {
-        stdoutThread = Thread {
-            process.inputStream.bufferedReader()?.useLines { lines ->
-                lines.forEach { line -> emitLog("SB-OUT | $line") }
-            }
-        }.also { it.start() }
-
-        stderrThread = Thread {
-            process.errorStream.bufferedReader()?.useLines { lines ->
-                lines.forEach { line -> emitLog("SB-ERR | $line") }
-            }
-        }.also { it.start() }
-    }
-
-    private fun attachProcessWatcher(process: Process) {
-        processWaitThread = Thread {
-            try {
-                val exitCode = process.waitFor()
-                if (running.get()) {
-                    emitLog("sing-box finalizó con código: $exitCode")
-                    running.set(false)
-                    stopSelf()
-                }
-            } catch (_: InterruptedException) {
-                // Servicio detenido explícitamente.
-            }
-        }.also { it.start() }
-    }
-
-    private fun resolveSingBoxBinary(): File {
-        val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
-        val nativeBinary = File(nativeLibDir, SING_BOX_NATIVE_LIBRARY_NAME)
-
-        emitLog("nativeLibraryDir runtime: $nativeLibDir")
-
-        if (nativeBinary.exists()) {
-            emitLog("Binario nativo detectado en: ${nativeBinary.absolutePath}")
-            emitLog("Permiso de ejecución nativo: ${nativeBinary.canExecute()}")
-            return nativeBinary
-        }
-
-        emitLog("WARN: no existe en nativeLibraryDir, intentando extraer desde APK")
-        val extracted = extractNativeBinaryFromInstalledApk()
-        emitLog("Binario extraído desde APK en: ${extracted.absolutePath}")
-        emitLog("Permiso de ejecución extraído: ${extracted.canExecute()}")
-        return extracted
-    }
-
-    private fun extractNativeBinaryFromInstalledApk(): File {
-        val appInfo = applicationContext.applicationInfo
-        val apkCandidates = buildList {
-            add(appInfo.sourceDir)
-            appInfo.splitSourceDirs?.let { addAll(it) }
-        }
-
-        val targetDir = File(filesDir, "native-bin").apply { mkdirs() }
-        val targetBinary = File(targetDir, "sing-box")
-
-        apkCandidates.forEach { apkPath ->
-            ZipFile(apkPath).use { zip ->
-                APK_LIB_ENTRY_CANDIDATES.firstNotNullOfOrNull { entryPath ->
-                    zip.getEntry(entryPath)?.let { entry ->
-                        zip.getInputStream(entry).use { input ->
-                            targetBinary.outputStream().use { output -> input.copyTo(output) }
-                        }
-                        targetBinary
-                    }
-                }?.let {
-                    val executableApplied = it.setExecutable(true, false)
-                    val readableApplied = it.setReadable(true, false)
-                    emitLog(
-                        "Permisos aplicados para fallback (x/r): $executableApplied/$readableApplied"
-                    )
-                    return it
-                }
-            }
-        }
-
-        throw IOException(
-            "Binario nativo no encontrado. Buscado en nativeLibraryDir=${appInfo.nativeLibraryDir} " +
-                "y entradas APK=${APK_LIB_ENTRY_CANDIDATES.joinToString()} " +
-                "de ${apkCandidates.joinToString()}"
-        )
-    }
-
-    private fun writeLibboxConfig(): File {
-        val configFile = File(filesDir, "config-libbox.json")
-        configFile.writeText(buildLibboxConfigJson())
-        emitLog("Config libbox escrita en: ${configFile.absolutePath}")
-        return configFile
-    }
-
-    private fun buildLibboxConfigJson(): String {
+    private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, smuxMaxStreams: Int): String {
         return """
             {
-              "log": {
-                "level": "debug",
-                "timestamp": true
-              },
-              "dns": {
-                "servers": [
-                  {
-                    "type": "local",
-                    "tag": "local"
-                  }
-                ],
-                "independent_cache": true
-              },
+              "log": { "level": "info", "timestamp": true },
               "inbounds": [
                 {
                   "type": "tun",
                   "tag": "tun-in",
+                  "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
                   "auto_route": true,
                   "strict_route": true,
-                  "mtu": 1500,
-                  "stack": "gvisor",
                   "sniff": true,
-                  "sniff_override_destination": true,
-                  "address": ["172.19.0.1/30"]
+                  "stack": "${tunStack}"
                 }
               ],
               "outbounds": [
                 {
-                  "type": "socks",
-                  "tag": "proxy-out",
+                  "type": "vless",
+                  "tag": "proxy",
                   "server": "127.0.0.1",
-                  "server_port": 1080
-                }
+                  "server_port": 10800,
+                  "uuid": "11111111-1111-1111-1111-111111111111",
+                  "flow": "",
+                  "multiplex": {
+                    "enabled": true,
+                    "protocol": "smux",
+                    "max_streams": ${smuxMaxStreams}
+                  },
+                  "packet_encoding": "xudp"
+                },
+                { "type": "direct", "tag": "direct" },
+                { "type": "block",  "tag": "block" }
               ],
               "route": {
                 "rules": [
+                  { "action": "sniff" },
+                  { "protocol": "dns", "action": "hijack-dns" },
+                  { "ip_is_private": true, "outbound": "direct" },
                   {
-                    "protocol": "dns",
-                    "action": "hijack-dns"
+                    "domain": ["${tunnelDomain}", "emailmarketing.personal.com.ar"],
+                    "outbound": "direct"
                   },
                   {
-                    "inbound": "tun-in",
-                    "action": "route",
-                    "outbound": "proxy-out"
+                    "ip_cidr": ["2606:4700::6812:16b7/128", "127.0.0.1/32"],
+                    "outbound": "direct"
                   }
                 ],
-                "final": "proxy-out",
-                "default_domain_resolver": "local"
-              }
-            }
-        """.trimIndent()
-    }
-
-    private fun prepareTunFdForSingBox(vpnPfd: ParcelFileDescriptor): Int {
-        val sourceFd = vpnPfd.fd
-        if (sourceFd < 0) {
-            throw IOException("FD de TUN inválido desde VpnService")
-        }
-
-        if (sourceFd == SING_BOX_TUN_FD) {
-            emitLog("TUN FD ya coincide con objetivo: $sourceFd")
-        } else {
-            Os.dup2(vpnPfd.fileDescriptor, SING_BOX_TUN_FD)
-            emitLog("FD TUN duplicado de $sourceFd a $SING_BOX_TUN_FD para sing-box")
-        }
-
-        preparedTunFd = SING_BOX_TUN_FD
-        return SING_BOX_TUN_FD
-    }
-
-    private fun closePreparedTunFd() {
-        val fdToClose = preparedTunFd ?: return
-        try {
-            ParcelFileDescriptor.adoptFd(fdToClose).close()
-            emitLog("FD TUN preparado cerrado: $fdToClose")
-        } catch (e: Exception) {
-            emitLog("WARN cerrando FD TUN preparado: ${e.message}")
-        } finally {
-            preparedTunFd = null
-        }
-    }
-
-    private fun writeSingBoxConfig(tunFd: Int): File {
-        val configFile = File(filesDir, "config.json")
-        configFile.writeText(buildSingBoxConfigJson(tunFd))
-        emitLog("Config escrita en: ${configFile.absolutePath}")
-        emitLog("Config TUN fd aplicado: $tunFd")
-        return configFile
-    }
-
-    private fun buildSingBoxConfigJson(tunFd: Int): String {
-        return """
-            {
-              "log": {
-                "level": "debug",
-                "timestamp": true
-              },
-              "dns": {
-                "servers": [
-                  {
-                    "type": "local",
-                    "tag": "local"
-                  }
-                ],
-                "independent_cache": true
-              },
-              "inbounds": [
-                {
-                  "type": "tun",
-                  "tag": "tun-in",
-                  "fd": $tunFd,
-                  "mtu": 1500,
-                  "stack": "gvisor",
-                  "sniff": true,
-                  "sniff_override_destination": true
-                }
-              ],
-              "outbounds": [
-                {
-                  "type": "socks",
-                  "tag": "proxy-out",
-                  "server": "127.0.0.1",
-                  "server_port": 1080
-                }
-              ],
-              "route": {
-                "rules": [
-                  {
-                    "protocol": "dns",
-                    "action": "hijack-dns"
-                  },
-                  {
-                    "inbound": "tun-in",
-                    "action": "route",
-                    "outbound": "proxy-out"
-                  }
-                ],
-                "final": "proxy-out",
-                "default_domain_resolver": "local"
+                "auto_detect_interface": true,
+                "final": "proxy"
               }
             }
         """.trimIndent()
     }
 
     private fun emitLog(message: String) {
-        Log.d(TAG, message)
+        Log.i(TAG, message)
         VpnLogStore.add(message)
     }
 
-    private data class SingBoxCommandAttempt(
-        val command: List<String>,
-        val enableLegacyDnsCompatEnv: Boolean
-    )
-
     companion object {
         private const val TAG = "LocalVpnService"
-        private const val SING_BOX_NATIVE_LIBRARY_NAME = "libsingbox.so"
-        private val APK_LIB_ENTRY_CANDIDATES = listOf(
-            "lib/arm64-v8a/libsingbox.so",
-            "lib/armeabi-v7a/libsingbox.so",
-            "lib/x86_64/libsingbox.so",
-            "lib/x86/libsingbox.so"
-        )
-        private const val TERMUX_PACKAGE_NAME = "com.termux"
-        private const val HELP_COMMAND_TIMEOUT_SECONDS = 2L
-        private const val PROCESS_BOOT_GRACE_MS = 1200L
-        private const val ENABLE_DEPRECATED_LEGACY_DNS_SERVERS_KEY = "ENABLE_DEPRECATED_LEGACY_DNS_SERVERS"
-        private const val SING_BOX_TUN_FD = 7
-
-
+        const val ACTION_START = "START_VPN"
+        const val ACTION_STOP = "STOP_VPN"
+        const val EXTRA_HWID = "extra_hwid"
+        const val EXTRA_TUNNEL_DOMAIN = "extra_tunnel_domain"
+        const val EXTRA_TUN_STACK = "extra_tun_stack"
+        const val EXTRA_SMUX_MAX_STREAMS = "extra_smux_max_streams"
+        private const val NOTIF_CHANNEL_ID = "vpn_foreground"
+        private const val NOTIF_ID = 1001
+        private val libboxSetupLock = Any()
+        private val isLibboxSetupDone = AtomicBoolean(false)
     }
 }

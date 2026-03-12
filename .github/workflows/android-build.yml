@@ -5,90 +5,150 @@ on:
     branches: ["**"]
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   build-libbox:
     runs-on: ubuntu-latest
+    env:
+      LIBBOX_VERSION: v1.13.2
+      LIBBOX_CACHE_BRANCH: libbox-full-cache
+      LIBBOX_CACHE_DIR: libbox-cache/v1.13.2
 
     steps:
-      - name: Checkout sing-box
+      - name: Checkout app repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure cache branch exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$LIBBOX_CACHE_BRANCH" >/dev/null 2>&1; then
+            echo "Rama cache existente: $LIBBOX_CACHE_BRANCH"
+            exit 0
+          fi
+
+          echo "Rama cache no existe, creando: $LIBBOX_CACHE_BRANCH"
+          git checkout --orphan "$LIBBOX_CACHE_BRANCH"
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p "$LIBBOX_CACHE_DIR"
+          echo "Cache branch for full libbox artifacts" > "$LIBBOX_CACHE_DIR/.keep"
+          git add "$LIBBOX_CACHE_DIR/.keep"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize libbox cache branch"
+          git push origin "$LIBBOX_CACHE_BRANCH"
+          git checkout -
+
+      - name: Try restore libbox artifacts from cache branch
+        id: cache_lookup
+        run: |
+          set -euo pipefail
+          mkdir -p cached-libbox
+          git fetch origin "$LIBBOX_CACHE_BRANCH":"refs/remotes/origin/$LIBBOX_CACHE_BRANCH"
+
+          if git show "origin/$LIBBOX_CACHE_BRANCH:$LIBBOX_CACHE_DIR/libbox.aar" > cached-libbox/libbox.aar 2>/dev/null && \
+             git show "origin/$LIBBOX_CACHE_BRANCH:$LIBBOX_CACHE_DIR/libbox-sources.jar" > cached-libbox/libbox-sources.jar 2>/dev/null; then
+            echo "use_cached=true" >> "$GITHUB_OUTPUT"
+            echo "Se encontraron artifacts en rama cache"
+          else
+            echo "use_cached=false" >> "$GITHUB_OUTPUT"
+            echo "No hay artifacts en cache para $LIBBOX_VERSION"
+          fi
+
+      - name: Checkout sing-box source
+        if: steps.cache_lookup.outputs.use_cached == 'false'
         uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
           ref: v1.13.2
           fetch-depth: 0
+          path: sing-box-src
 
       - name: Setup Go
+        if: steps.cache_lookup.outputs.use_cached == 'false'
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache: false
 
       - name: Setup Java
+        if: steps.cache_lookup.outputs.use_cached == 'false'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Setup Android SDK & NDK
+        if: steps.cache_lookup.outputs.use_cached == 'false'
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK r27
+      - name: Install NDK r28
+        if: steps.cache_lookup.outputs.use_cached == 'false'
         run: |
-          sdkmanager "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+          sdkmanager "ndk;28.1.13356709"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.1.13356709" >> "$GITHUB_ENV"
 
       - name: Install gomobile (SagerNet fork)
+        if: steps.cache_lookup.outputs.use_cached == 'false'
         run: |
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
           go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Initialize gomobile
+        if: steps.cache_lookup.outputs.use_cached == 'false'
+        working-directory: sing-box-src
         run: gomobile init
 
-      - name: Patch build tags (VLESS + TUN only)
-        run: |
-          python3 - << 'PYEOF'
-          with open('./cmd/internal/build_libbox/main.go', 'r') as f:
-              content = f.read()
-
-          remove_tags = [
-              'with_quic',
-              'with_dhcp',
-              'with_acme',
-              'with_clash_api',
-              'with_tailscale',
-              'with_wireguard',
-              'with_ccm',
-              'with_ocm',
-              'with_naive_outbound',
-          ]
-
-          for tag in remove_tags:
-              content = content.replace(f'"{tag}", ', '')
-              content = content.replace(f', "{tag}"', '')
-              content = content.replace(f'"{tag}"', '')
-
-          lines = content.split('\n')
-          lines = [l for l in lines if 'ts_omit' not in l]
-          content = '\n'.join(lines)
-
-          with open('./cmd/internal/build_libbox/main.go', 'w') as f:
-              f.write(content)
-
-          print("Parche aplicado")
-          PYEOF
-
       - name: Build libbox.aar
+        if: steps.cache_lookup.outputs.use_cached == 'false'
+        working-directory: sing-box-src
         run: go run ./cmd/internal/build_libbox --target android
+
+      - name: Prepare artifacts output
+        run: |
+          set -euo pipefail
+          mkdir -p out-libbox
+          if [ "${{ steps.cache_lookup.outputs.use_cached }}" = "true" ]; then
+            cp cached-libbox/libbox.aar out-libbox/libbox.aar
+            cp cached-libbox/libbox-sources.jar out-libbox/libbox-sources.jar
+          else
+            cp sing-box-src/libbox.aar out-libbox/libbox.aar
+            cp sing-box-src/libbox-sources.jar out-libbox/libbox-sources.jar
+          fi
+          ls -lh out-libbox
+
+      - name: Store artifacts in cache branch
+        if: steps.cache_lookup.outputs.use_cached == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/libbox-cache-repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/libbox-cache-repo
+          cd /tmp/libbox-cache-repo
+          git checkout "$LIBBOX_CACHE_BRANCH"
+          mkdir -p "$LIBBOX_CACHE_DIR"
+          cp "$GITHUB_WORKSPACE/out-libbox/libbox.aar" "$LIBBOX_CACHE_DIR/libbox.aar"
+          cp "$GITHUB_WORKSPACE/out-libbox/libbox-sources.jar" "$LIBBOX_CACHE_DIR/libbox-sources.jar"
+          git add "$LIBBOX_CACHE_DIR/libbox.aar" "$LIBBOX_CACHE_DIR/libbox-sources.jar"
+          if git diff --cached --quiet; then
+            echo "Sin cambios de artifacts para guardar en cache"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Update libbox full artifacts $LIBBOX_VERSION"
+          git push origin "$LIBBOX_CACHE_BRANCH"
 
       - name: Upload libbox artifacts
         uses: actions/upload-artifact@v4
         with:
           name: libbox-v1.13.2
           path: |
-            libbox.aar
-            libbox-sources.jar
+            out-libbox/libbox.aar
+            out-libbox/libbox-sources.jar
           if-no-files-found: error
 
   build-apk:

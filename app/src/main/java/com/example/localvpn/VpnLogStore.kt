@@ -7,12 +7,14 @@ import java.util.Locale
 object VpnLogStore {
 
     private const val MAX_LOG_LINES = 500
+    private const val ENABLE_LOGS = false
     private val formatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val lines = mutableListOf<String>()
     private val listeners = mutableSetOf<(String) -> Unit>()
 
     @Synchronized
     fun add(message: String) {
+        if (!ENABLE_LOGS) return
         val entry = "${formatter.format(Date())}  $message"
         lines.add(entry)
         if (lines.size > MAX_LOG_LINES) {
@@ -27,7 +29,7 @@ object VpnLogStore {
     @Synchronized
     fun clear() {
         lines.clear()
-        listeners.forEach { it("--- logs limpiados ---") }
+        if (ENABLE_LOGS) listeners.forEach { it("--- logs limpiados ---") }
     }
 
     @Synchronized

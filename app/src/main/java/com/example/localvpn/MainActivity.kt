@@ -81,6 +81,9 @@ class MainActivity : ComponentActivity() {
 
         findViewById<Button>(R.id.stopVpnButton).setOnClickListener {
             startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_STOP))
+            stopService(Intent(this, LocalVpnService::class.java))
+            lastAuthOk = false
+            lastAuthDomain = ""
             Toast.makeText(this, "VPN detenida", Toast.LENGTH_SHORT).show()
         }
 
@@ -124,7 +127,7 @@ class MainActivity : ComponentActivity() {
 
         thread(name = "auth-thread") {
             try {
-                val info = BlackTunnelClient.auth(hwid, tunnelDomain) { VpnLogStore.add(it) }
+                val info = BlackTunnelClient.auth(hwid, tunnelDomain)
                 runOnUiThread {
                     accountLabel.text = "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire}" +
                         if (info.premium) " | PREMIUM" else ""

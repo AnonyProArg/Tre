@@ -1,12 +1,12 @@
 # Local VPN Proxy (Android)
 
-Aplicación Android simple que:
+Aplicación Android en modo pruebas para validar el flujo completo:
 
-1. Muestra un botón para solicitar permiso de `VpnService`.
-2. Crea una interfaz VPN virtual (TUN) al aceptar el permiso.
-3. Captura paquetes en la interfaz y los reenvía al proxy local `127.0.0.1:1080`.
-
-> Nota: este ejemplo reenvía bytes de paquetes IP al socket local. Para un proxy SOCKS5 real de producción se requiere implementar negociación de protocolo y manejo completo de flujos TCP/UDP.
+1. Genera/lee HWID local (`filesDir/hwid.txt`).
+2. Hace auth contra servidor remoto con ese HWID.
+3. Levanta proxy local en `127.0.0.1:10800`.
+4. Inicia `libbox` (AAR) con TUN y outbound VLESS apuntando al proxy local.
+5. Muestra logs en vivo y estado de cuenta en la UI.
 
 ## Compilar localmente
 
@@ -16,50 +16,21 @@ gradle assembleDebug
 
 ## Workflow CI
 
-El workflow `.github/workflows/android-build.yml` ejecuta un flujo de 2 jobs:
+El workflow `.github/workflows/android-build.yml` ejecuta 2 jobs:
 
 1. `build-libbox`: compila `libbox.aar` y `libbox-sources.jar` desde `SagerNet/sing-box`.
 2. `build-apk`: descarga esos artifacts a `app/libs/libbox/` y compila el APK debug.
 
-## Binario sing-box (forma nativa clásica en Android)
+## Flujo runtime actual
 
-El binario se empaqueta como librería nativa para que Android lo extraiga en `nativeLibraryDir` con permisos de ejecución.
-
-De forma clásica, el proyecto lo prepara en build-time con Gradle (task `prepareSingBoxJniLibs`) a partir de `sing-box-1.13.2-android-arm64.tar.gz`, lo renombra a `libsingbox.so` y lo publica como `jniLibs` para `arm64-v8a`.
-
-En runtime, la app lo ejecuta desde:
-
-- `${applicationInfo.nativeLibraryDir}/libsingbox.so`
-
-La resolución de ruta se hace en tiempo de ejecución (sin hardcodear `/data/app/...`) usando `applicationContext.applicationInfo.nativeLibraryDir` y el nombre `libsingbox.so`.
-
-Si por políticas del dispositivo/instalación no aparece extraído en `nativeLibraryDir`, la app aplica fallback robusto: lee `lib*/libsingbox.so` desde el APK instalado (`sourceDir`/`splitSourceDirs`), lo copia a `files/native-bin/sing-box`, aplica permisos y ejecuta desde ahí.
-
-Nota de compatibilidad: en esta versión se ejecuta `sing-box run -c <config>` sin `--force-passive-tun`, porque el binario actual reporta ese flag como no soportado (`unknown flag`).
-
-La ejecución ahora prueba variantes de comando para adaptarse a cambios entre versiones de sing-box: inspecciona `sing-box run -h`, usa `--force-passive-tun` solo si existe, y si un intento termina enseguida prueba la siguiente variante sin romper el servicio.
-
-Además se migró la sección `dns.servers` al formato nuevo (`type: local`) para compatibilidad con sing-box 1.12+ y evitar el fatal de `legacy DNS servers`.
-
-Como red de seguridad para pruebas, la app también reintenta cada variante activando el entorno `ENABLE_DEPRECATED_LEGACY_DNS_SERVERS=true` por si el binario o perfil requiere compatibilidad temporal.
-
-Se cambió la estrategia TUN para Android VPN: la app crea la interfaz con `VpnService.Builder.establish()`, duplica su FD al descriptor esperado por sing-box (FD 7) y escribe `"fd": 7` en el inbound `tun`. Así sing-box reutiliza el TUN del sistema y no intenta crearlo por su cuenta.
+- `MainActivity` muestra HWID, permite copiarlo, configurar/guardar dominio del túnel, TUN stack (`system/gvisor/mixed`) y `smux max_streams`, y hace auth antes de pedir permiso VPN.
+- `LocalVpnService` usa la sesión validada, inicia proxy local + libbox y corre como foreground service para evitar muerte al salir de multitarea.
+- El socket del túnel remoto se protege con `VpnService.protect(socket)` para evitar loop de ruteo.
 
 
-## Flujo de artifacts `libbox.aar`
+### Fallbacks de canal BlackTunnel
 
-Para local/manual puedes seguir usando:
-
-```bash
-scripts/install_libbox_artifacts.sh <directorio_descargado_del_artifact>
-```
-
-La app carga automáticamente `*.aar` desde `app/libs/libbox/` vía Gradle.
-
-
-## Runtime engine (migración al AAR)
-
-La app ahora intenta **primero** iniciar `libbox` desde el AAR (`libbox.aar`) usando `CommandServer` y `PlatformInterface` (con logs de detección y arranque).
-
-- Config primario: `config-libbox.json` con inbound `tun` usando `auto_route`.
-- Si `libbox` no inicia, se usa fallback al flujo CLI de `sing-box` ya existente.
+- Intento 1: IPv6 hardcodeado al nodo CF zero-rated.
+- Intento 2: IPv6 resuelto por DNS del host señuelo.
+- Intento 3: IPv4 directo al dominio configurado (sin payload señuelo p1).
+- El parser usa la respuesta HTTP útil con `101` cuando CF concatena `530 + 101`.

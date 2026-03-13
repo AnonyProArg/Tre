@@ -1,5 +1,6 @@
 package com.example.localvpn
 
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -18,17 +19,21 @@ object BlackTunnelClient {
     private const val PROXY_IPV6 = "2606:4700::6812:16b7"
     private const val PROXY_HOST = "emailmarketing.personal.com.ar"
     private const val PROXY_PORT = 80
+    private const val CENTRAL_HOST = "central.brawlpass.com.ar"
 
-    const val LOCAL_HOST = "127.0.0.1"
-    const val LOCAL_PORT = 10800
+    const val LOCAL_HOST = "0.0.0.0"
+    const val LOCAL_PORT = 10809
 
     data class AccountInfo(
         val status: String,
         val name: String,
         val expire: String,
         val days: String,
-        val premium: Boolean
+        val premium: Boolean,
+        val created: String
     )
+
+    data class ServerInfo(val host: String, val region: String, val status: String)
 
     class AuthException(message: String) : Exception(message)
 
@@ -63,6 +68,56 @@ object BlackTunnelClient {
         return hwid
     }
 
+    fun fetchServers(logger: ((String) -> Unit)? = null): List<ServerInfo> {
+        val request = (
+            "BT-SERVERS / HTTP/1.1\r\n" +
+                "Host: $CENTRAL_HOST\r\n" +
+                "Upgrade: websocket\r\n\r\n"
+            ).toByteArray()
+
+        val addresses = runCatching { InetAddress.getAllByName(CENTRAL_HOST).toList() }.getOrDefault(emptyList())
+        addresses.forEach { addr ->
+            val socket = Socket()
+            try {
+                socket.tcpNoDelay = true
+                socket.keepAlive = true
+                socket.connect(InetSocketAddress(addr, 80), 7_000)
+                socket.soTimeout = 5_000
+                val out = socket.getOutputStream()
+                out.write(request)
+                out.flush()
+                val raw = readResponse(socket)
+                val headers = parseSecondResponse(raw).first
+                val list = headers["x-servers"].orEmpty()
+                if (list.isBlank()) continue
+                val parsed = parseServerList(list)
+                if (parsed.isNotEmpty()) return parsed
+            } catch (e: Exception) {
+                logger?.invoke("fetchServers error: ${e.message}")
+            } finally {
+                closeQuietly(socket)
+            }
+        }
+        return emptyList()
+    }
+
+    private fun parseServerList(value: String): List<ServerInfo> {
+        val result = linkedMapOf<String, ServerInfo>()
+        value.split(',').forEach { token ->
+            val item = token.trim()
+            val open = item.indexOf('(')
+            val close = item.lastIndexOf(')')
+            if (open <= 0 || close <= open) return@forEach
+            val host = item.substring(0, open).trim().lowercase()
+            val inside = item.substring(open + 1, close)
+            val parts = inside.split('|')
+            val region = parts.getOrNull(0)?.trim().orEmpty()
+            val status = parts.getOrNull(1)?.trim()?.lowercase().orEmpty()
+            if (host.isNotBlank()) result[host] = ServerInfo(host, region, status)
+        }
+        return result.values.toList()
+    }
+
     fun auth(hwid: String, tunnelDomain: String, logger: ((String) -> Unit)? = null): AccountInfo {
         logger?.invoke("AUTH start dominio=$tunnelDomain hwid=$hwid")
         val (socket, headers) = openChannel("auth", hwid, tunnelDomain, null, logger)
@@ -70,7 +125,6 @@ object BlackTunnelClient {
         if (headers.isEmpty()) throw AuthException("Sin respuesta del servidor")
 
         val status = headers["x-status"] ?: "INVALID"
-        logger?.invoke("AUTH response status=$status name=${headers["x-name"] ?: "?"} days=${headers["x-days-left"] ?: "?"}")
 
         return when (status) {
             "OK" -> AccountInfo(
@@ -78,18 +132,17 @@ object BlackTunnelClient {
                 name = headers["x-name"] ?: hwid,
                 expire = headers["x-expire"] ?: "?",
                 days = headers["x-days-left"] ?: "?",
-                premium = headers["x-premium"] == "1"
+                premium = headers["x-premium"] == "1",
+                created = headers["x-created"] ?: "?"
             )
-
             "EXPIRED" -> throw AuthException("Acceso expirado")
             else -> throw AuthException("HWID no autorizado ($status)")
         }
     }
 
     fun notifyDisconnect(hwid: String, tunnelDomain: String, logger: ((String) -> Unit)? = null) {
-        val (socket, headers) = openChannel("disconnect", hwid, tunnelDomain, null, logger)
+        val (socket, _) = openChannel("disconnect", hwid, tunnelDomain, null, logger)
         closeQuietly(socket)
-        logger?.invoke("DISCONNECT notify status=${headers["x-status"] ?: "none"}")
     }
 
     fun startProxy(
@@ -137,14 +190,10 @@ object BlackTunnelClient {
     ) {
         val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, protectSocket, logger)
         if (tunnelSocket == null || headers["x-status"] != "OK") {
-            logger("WARN túnel rechazado: ${headers["x-status"] ?: "ERROR"} dominio=$tunnelDomain")
             closeQuietly(client)
             closeQuietly(tunnelSocket)
             return
         }
-
-        logger("Túnel OK name=${headers["x-name"] ?: "?"} days=${headers["x-days-left"] ?: "?"} active=${headers["x-active"] ?: "?"} dominio=$tunnelDomain")
-
         thread(name = "bt-relay-up", isDaemon = true) { relay(client, tunnelSocket) }
         thread(name = "bt-relay-down", isDaemon = true) { relay(tunnelSocket, client) }
     }
@@ -185,22 +234,21 @@ object BlackTunnelClient {
                 "Auth: $hwid\r\n\r\n"
             ).toByteArray()
 
-        connectAndSend(InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket, "ipv6-hard", logger)
+        connectAndSend(InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket, logger)
             .let { if (it.first != null) return it }
 
         val ipv6ByDns = runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }.getOrDefault(emptyList())
         ipv6ByDns.forEach { ip6 ->
-            connectAndSend(InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket, "ipv6-dns:${ip6.hostAddress}", logger)
+            connectAndSend(InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket, logger)
                 .let { if (it.first != null) return it }
         }
 
         val ipv4Direct = runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet4Address>() }.getOrDefault(emptyList())
         ipv4Direct.forEach { ip4 ->
-            connectAndSend(InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket, "ipv4-direct:${ip4.hostAddress}", logger)
+            connectAndSend(InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket, logger)
                 .let { if (it.first != null) return it }
         }
 
-        logger?.invoke("canal $action falló en todos los intentos dominio=$tunnelDomain")
         return null to emptyMap()
     }
 
@@ -209,7 +257,6 @@ object BlackTunnelClient {
         p1: ByteArray?,
         p2: ByteArray,
         protectSocket: ((Socket) -> Unit)?,
-        mode: String,
         logger: ((String) -> Unit)?
     ): Pair<Socket?, Map<String, String>> {
         val socket = Socket()
@@ -224,11 +271,7 @@ object BlackTunnelClient {
             output.write(p2)
             output.flush()
             val raw = readResponse(socket)
-            val parsed = parseSecondResponse(raw)
-            val headers = parsed.first
-            val partsCount = parsed.second
-            val status = headers["x-status"]
-            logger?.invoke("canal modo=$mode partes=$partsCount status=${status ?: "none"}")
+            val headers = parseSecondResponse(raw).first
             if (headers["x-status"].isNullOrBlank()) {
                 closeQuietly(socket)
                 null to emptyMap()
@@ -238,26 +281,27 @@ object BlackTunnelClient {
             }
         } catch (e: Exception) {
             closeQuietly(socket)
-            logger?.invoke("canal modo=$mode error=${e.message}")
+            logger?.invoke("connectAndSend error=${e.message}")
             null to emptyMap()
         }
     }
 
     private fun readResponse(socket: Socket): ByteArray {
         val input = socket.getInputStream()
-        val out = ArrayList<Byte>()
+        val out = ByteArrayOutputStream()
         val buf = ByteArray(4096)
         val deadline = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < deadline) {
             val n = try { input.read(buf) } catch (_: SocketTimeoutException) { break }
             if (n <= 0) break
-            repeat(n) { i -> out.add(buf[i]) }
+            out.write(buf, 0, n)
             if (String(buf, 0, n).contains("\r\n\r\n")) {
-                Thread.sleep(50)
+                Thread.sleep(40)
                 val extra = try { input.read(buf) } catch (_: Exception) { -1 }
-                if (extra > 0) repeat(extra) { i -> out.add(buf[i]) }
+                if (extra > 0) out.write(buf, 0, extra)
                 break
             }
+            if (out.size() > 128 * 1024) break
         }
         return out.toByteArray()
     }
@@ -272,9 +316,7 @@ object BlackTunnelClient {
         target.split("\r\n").forEach { line ->
             val idx = line.indexOf(':')
             if (idx > 0 && !line.startsWith(" ") && !line.startsWith("\t")) {
-                val key = line.substring(0, idx).trim().lowercase()
-                val value = line.substring(idx + 1).trim()
-                headers[key] = value
+                headers[line.substring(0, idx).trim().lowercase()] = line.substring(idx + 1).trim()
             }
         }
         return headers to parts.size

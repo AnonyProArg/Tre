@@ -391,7 +391,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                   "type": "vless",
                   "tag": "proxy",
                   "server": "127.0.0.1",
-                  "server_port": 10800,
+                  "server_port": ${BlackTunnelClient.LOCAL_PORT},
                   "uuid": "11111111-1111-1111-1111-111111111111",
                   "flow": "",
                   "multiplex": {

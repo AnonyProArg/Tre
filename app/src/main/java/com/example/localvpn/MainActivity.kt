@@ -17,6 +17,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -27,15 +29,20 @@ class MainActivity : ComponentActivity() {
     private lateinit var hwidLabel: TextView
     private lateinit var accountLabel: TextView
     private lateinit var statusLabel: TextView
-    private lateinit var serverLabel: TextView
+    private lateinit var serverSpinner: Spinner
+    private lateinit var serverStateLabel: TextView
     private lateinit var tunStackSpinner: Spinner
     private lateinit var smuxStreamsInput: EditText
     private lateinit var toggleVpnButton: Button
+    private lateinit var batteryButton: Button
+    private lateinit var shareNetButton: Button
 
     private var hwid: String = ""
     private var lastAuthOk = false
     private var lastAuthDomain = ""
     private var isVpnConnected = false
+    private var shareNetEnabled = false
+    private var serverList: List<AppSettings.SavedServer> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,26 +51,28 @@ class MainActivity : ComponentActivity() {
         hwidLabel = findViewById(R.id.hwidLabel)
         accountLabel = findViewById(R.id.accountLabel)
         statusLabel = findViewById(R.id.statusLabel)
-        serverLabel = findViewById(R.id.serverLabel)
+        serverSpinner = findViewById(R.id.serverSpinner)
+        serverStateLabel = findViewById(R.id.serverStateLabel)
         tunStackSpinner = findViewById(R.id.tunStackSpinner)
         smuxStreamsInput = findViewById(R.id.smuxStreamsInput)
         toggleVpnButton = findViewById(R.id.startVpnButton)
+        batteryButton = findViewById(R.id.batteryButton)
+        shareNetButton = findViewById(R.id.shareProxyButton)
 
-        val stackValues = listOf("system", "gvisor", "mixed")
+        val stackValues = listOf("gvisor", "system", "mixed")
         tunStackSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, stackValues)
 
         hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
         hwidLabel.text = "HWID: $hwid"
 
-        val tunnelDomain = AppSettings.getTunnelDomain(this)
-        serverLabel.text = getString(R.string.server_default)
         val savedStack = AppSettings.getTunStack(this)
         tunStackSpinner.setSelection(stackValues.indexOf(savedStack).coerceAtLeast(0))
         smuxStreamsInput.setText(AppSettings.getSmuxMaxStreams(this).toString())
 
-        lastAuthDomain = tunnelDomain
         accountLabel.text = AppSettings.getAccountSummary(this).ifBlank { getString(R.string.account_unknown) }
+        loadServersFromStorage()
         refreshPersistentConnectionState()
+        refreshBatteryButtonVisibility()
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -75,20 +84,31 @@ class MainActivity : ComponentActivity() {
             saveConfigFromInputs(showToast = true)
         }
 
+        findViewById<Button>(R.id.updateServersButton).setOnClickListener {
+            refreshServersFromCentral()
+        }
+
         toggleVpnButton.setOnClickListener {
             if (isVpnConnected) stopVpnNow() else authenticateThenStart()
         }
 
-        findViewById<Button>(R.id.batteryButton).setOnClickListener { openBatteryOptimizationSettings() }
+        batteryButton.setOnClickListener { openBatteryOptimizationSettings() }
         findViewById<Button>(R.id.infoButton).setOnClickListener { showInfoDialog() }
         findViewById<Button>(R.id.telegramButton).setOnClickListener { openUrl("https://t.me/usernamematy") }
         findViewById<Button>(R.id.whatsappButton).setOnClickListener { openUrl("https://wa.me/543834636264") }
-        findViewById<Button>(R.id.shareProxyButton).setOnClickListener { showProxyInfo() }
+
+        shareNetButton.setOnClickListener {
+            shareNetEnabled = !shareNetEnabled
+            renderShareNetButton()
+            if (shareNetEnabled) showShareNetInfoDialog()
+        }
+        renderShareNetButton()
     }
 
     override fun onResume() {
         super.onResume()
         refreshPersistentConnectionState()
+        refreshBatteryButtonVisibility()
     }
 
     private fun saveConfigFromInputs(showToast: Boolean): Boolean {
@@ -106,15 +126,80 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+    private fun refreshServersFromCentral() {
+        Toast.makeText(this, getString(R.string.servers_updating), Toast.LENGTH_SHORT).show()
+        thread(name = "servers-refresh") {
+            val servers = BlackTunnelClient.fetchServers()
+            runOnUiThread {
+                if (servers.isEmpty()) {
+                    Toast.makeText(this, getString(R.string.servers_update_failed), Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+
+                val mapped = servers.map { AppSettings.SavedServer(it.host, it.region, it.status) }
+                AppSettings.setServerList(this, mapped)
+                val currentHost = AppSettings.getTunnelDomain(this)
+                val selected = mapped.firstOrNull { it.host == currentHost }?.host ?: mapped.first().host
+                AppSettings.setTunnelDomain(this, selected)
+                loadServersFromStorage(selected)
+                Toast.makeText(this, getString(R.string.servers_updated, mapped.size), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun loadServersFromStorage(preferredHost: String? = null) {
+        serverList = AppSettings.getServerList(this)
+        if (serverList.isEmpty()) {
+            serverSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf(getString(R.string.no_servers)))
+            serverStateLabel.text = "⚪ ${getString(R.string.server_state_unknown)}"
+            lastAuthDomain = ""
+            return
+        }
+
+        val labels = serverList.mapIndexed { index, s -> "Server #${index + 1} | ${s.region.ifBlank { "N/A" }}" }
+        serverSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+
+        val hostToSelect = preferredHost ?: AppSettings.getTunnelDomain(this).ifBlank { serverList.first().host }
+        val idx = serverList.indexOfFirst { it.host == hostToSelect }.coerceAtLeast(0)
+        serverSpinner.setSelection(idx)
+        onServerSelected(idx)
+
+        serverSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                onServerSelected(position)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        })
+    }
+
+    private fun onServerSelected(position: Int) {
+        val selected = serverList.getOrNull(position) ?: return
+        AppSettings.setTunnelDomain(this, selected.host)
+        lastAuthDomain = selected.host
+        serverStateLabel.text = when (selected.status.lowercase()) {
+            "online" -> "🟢 ${getString(R.string.server_online)}"
+            "maintenance" -> "🟡 ${getString(R.string.server_maintenance)}"
+            "offline" -> "🔴 ${getString(R.string.server_offline)}"
+            else -> "⚪ ${getString(R.string.server_state_unknown)}"
+        }
+    }
+
     private fun authenticateThenStart() {
         if (!saveConfigFromInputs(showToast = false)) return
+
+        val tunnelDomain = AppSettings.getTunnelDomain(this)
+        if (tunnelDomain.isBlank()) {
+            Toast.makeText(this, getString(R.string.need_update_servers), Toast.LENGTH_LONG).show()
+            return
+        }
+
         if (isExpiredLocally()) {
             Toast.makeText(this, getString(R.string.local_expired), Toast.LENGTH_LONG).show()
             stopVpnNow()
             return
         }
 
-        val tunnelDomain = AppSettings.getTunnelDomain(this)
         updateUiState(verified = false, connected = false, status = getString(R.string.status_validating))
 
         thread(name = "auth-thread") {
@@ -205,6 +290,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun refreshBatteryButtonVisibility() {
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        batteryButton.visibility = if (pm.isIgnoringBatteryOptimizations(packageName)) android.view.View.GONE else android.view.View.VISIBLE
+    }
+
     private fun openBatteryOptimizationSettings() {
         try {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -222,20 +312,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showInfoDialog() {
-        val message = getString(R.string.info_text)
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.info_title))
-            .setMessage(message)
+            .setMessage(getString(R.string.info_text))
             .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 
-    private fun showProxyInfo() {
+    private fun showShareNetInfoDialog() {
+        val ip = getLocalIpv4Address().ifBlank { "192.168.43.1" }
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.share_proxy_title))
-            .setMessage(getString(R.string.share_proxy_text, BlackTunnelClient.LOCAL_PORT))
+            .setMessage(getString(R.string.share_proxy_text, ip, BlackTunnelClient.LOCAL_PORT))
             .setPositiveButton(android.R.string.ok, null)
+            .setOnDismissListener {
+                // se mantiene activado hasta que el usuario pulse otra vez el botón
+            }
             .show()
+    }
+
+    private fun renderShareNetButton() {
+        shareNetButton.text = if (shareNetEnabled) getString(R.string.share_net_on) else getString(R.string.share_net_off)
+        shareNetButton.setBackgroundResource(if (shareNetEnabled) R.drawable.button_primary else R.drawable.button_ghost)
     }
 
     private fun openUrl(url: String) {
@@ -263,8 +361,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun formatAccountSummary(info: BlackTunnelClient.AccountInfo): String {
-        return "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire}" +
+        return "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire} | creado: ${info.created}" +
             if (info.premium) " | PREMIUM" else ""
+    }
+
+    private fun getLocalIpv4Address(): String {
+        return runCatching {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return@runCatching ""
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (!iface.isUp || iface.isLoopback) continue
+                val addrs = iface.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        return@runCatching addr.hostAddress.orEmpty()
+                    }
+                }
+            }
+            ""
+        }.getOrDefault("")
     }
 
     companion object {

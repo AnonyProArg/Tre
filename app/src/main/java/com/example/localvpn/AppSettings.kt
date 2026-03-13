@@ -10,17 +10,18 @@ object AppSettings {
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
+    private const val KEY_SERVER_LIST = "server_list"
 
-    private const val DEFAULT_TUNNEL_DOMAIN = "2.brawlpass.com.ar"
-    private const val DEFAULT_TUN_STACK = "system"
+    private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 32
 
     fun getTunnelDomain(context: Context): String {
-        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_TUNNEL_DOMAIN, DEFAULT_TUNNEL_DOMAIN)
+        val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_TUNNEL_DOMAIN, "")
             ?.trim()
             .orEmpty()
-        return if (value.isBlank()) DEFAULT_TUNNEL_DOMAIN else value
+        if (explicit.isNotBlank()) return explicit
+        return getServerList(context).firstOrNull()?.host.orEmpty()
     }
 
     fun setTunnelDomain(context: Context, domain: String) {
@@ -98,6 +99,32 @@ object AppSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_ACCOUNT_EXPIRE_EPOCH_DAY, epochDay)
+            .apply()
+    }
+
+    data class SavedServer(val host: String, val region: String, val status: String)
+
+    fun getServerList(context: Context): List<SavedServer> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_SERVER_LIST, "")
+            .orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.split("\n").mapNotNull { line ->
+            val parts = line.split("|")
+            if (parts.size < 3) null else SavedServer(parts[0], parts[1], parts[2])
+        }
+    }
+
+    fun setServerList(context: Context, servers: List<SavedServer>) {
+        val normalized = linkedMapOf<String, SavedServer>()
+        servers.forEach { s ->
+            val host = s.host.trim().lowercase()
+            if (host.isNotBlank()) normalized[host] = SavedServer(host, s.region.trim(), s.status.trim().lowercase())
+        }
+        val raw = normalized.values.joinToString("\n") { "${it.host}|${it.region}|${it.status}" }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_SERVER_LIST, raw)
             .apply()
     }
 }

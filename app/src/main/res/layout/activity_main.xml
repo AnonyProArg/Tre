@@ -175,38 +175,6 @@
             android:textColor="#E5E7EB"
             android:textColorHint="#6B7280"
             android:visibility="gone" />
-
-
-        <LinearLayout
-            android:id="@+id/gamerSection"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <EditText
-                android:id="@+id/gamerSearchInput"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/button_ghost"
-                android:hint="@string/gamer_search_hint"
-                android:paddingHorizontal="10dp"
-                android:singleLine="true"
-                android:textColor="#E5E7EB"
-                android:textColorHint="#6B7280" />
-
-            <ListView
-                android:id="@+id/gamerAppsList"
-                android:layout_width="match_parent"
-                android:layout_height="140dp"
-                android:layout_marginTop="6dp"
-                android:background="@drawable/card_surface"
-                android:divider="#374151"
-                android:dividerHeight="1dp" />
-        </LinearLayout>
-
-
         <LinearLayout
             android:id="@+id/customProxySection"
             android:layout_width="match_parent"

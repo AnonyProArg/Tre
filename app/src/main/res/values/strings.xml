@@ -3,7 +3,7 @@
     <string name="start_vpn">Conectar</string>
     <string name="stop_vpn">Desconectar</string>
     <string name="copy_id">Copiar ID</string>
-    <string name="smux_hint">SMUX</string>
+    <string name="smux_hint">Streams</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>
@@ -20,9 +20,17 @@
     <string name="vpn_permission_denied">Permiso de VPN denegado</string>
     <string name="need_auth">Debes autenticar antes de conectar</string>
     <string name="info_title">Info</string>
-    <string name="info_text">• TUN Stack: ahora gVisor es el predeterminado. Si notas lentitud, prueba System. Mixed es un punto intermedio.\n\n• Los cambios de TUN/SMUX se aplican al desconectar y volver a conectar.\n\n• MUX configurable: smux o h2mux.
+    <string name="info_text">• TUN Stack: ahora gVisor es el predeterminado. Si notas lentitud, prueba System. Mixed es un punto intermedio.
 
-• SMUX recomendado: 1000 para apps con muchas conexiones activas; puedes bajarlo si deseas menor consumo.\n\n• Quitar restricciones de batería ayuda a evitar micro cortes.</string>
+• Los cambios de TUN/MUX se aplican al desconectar y volver a conectar.
+
+• MUX configurable:
+  - h2mux: perfiles 1, 5, 10, 15, 30 (default recomendado: 5).
+  - smux: perfiles 700, 1000, 2000, 3000, 5000.
+
+• Subir streams mejora estabilidad simultánea y mantiene mejor conexiones activas (WhatsApp/Telegram/Chrome), pero puede aumentar consumo de batería.
+
+• Quitar restricciones de batería ayuda a evitar micro cortes.</string>
     <string name="contact_title">Contacto</string>
     <string name="contact_telegram">Telegram</string>
     <string name="contact_whatsapp">WhatsApp</string>

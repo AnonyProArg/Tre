@@ -62,13 +62,13 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val tunnelDomain = intentDomainOrSettings()
             val tunStack = intentTunStackOrSettings()
             val muxProtocol = intentMuxProtocolOrSettings()
-            val smuxMaxStreams = intentSmuxOrSettings()
+            val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
 
             emitLog("HWID sesión: $hwid")
             emitLog("Dominio túnel sesión: $tunnelDomain")
             emitLog("TUN stack sesión: $tunStack")
             emitLog("MUX protocolo sesión: $muxProtocol")
-            emitLog("SMUX max_streams sesión: $smuxMaxStreams")
+            emitLog("MUX max_streams sesión: $smuxMaxStreams")
 
             proxyHandle = BlackTunnelClient.startProxy(
                 hwid = hwid,
@@ -123,11 +123,13 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         return AppSettings.getMuxProtocol(this)
     }
 
-    private fun intentSmuxOrSettings(): Int {
+    private fun intentMuxStreamsOrSettings(muxProtocol: String): Int {
         val fromIntent = lastStartIntent?.getIntExtra(EXTRA_SMUX_MAX_STREAMS, -1) ?: -1
-        if (fromIntent > 0) return fromIntent
+        if (fromIntent > 0) {
+            return if (muxProtocol == "h2mux") fromIntent.coerceIn(1, 30) else fromIntent.coerceIn(700, 5000)
+        }
         emitLog("WARN EXTRA_SMUX_MAX_STREAMS ausente, usando ajuste guardado")
-        return AppSettings.getSmuxMaxStreams(this)
+        return AppSettings.getMuxMaxStreams(this, muxProtocol)
     }
 
     private fun startForegroundCompat() {

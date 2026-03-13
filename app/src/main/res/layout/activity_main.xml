@@ -103,7 +103,6 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="@string/hwid_label"
-                android:textColor="#E5E7EB"
                 android:textSize="12sp" />
 
             <Button
@@ -138,18 +137,13 @@
                 android:layout_marginStart="8dp"
                 android:layout_weight="1" />
 
-            <EditText
-                android:id="@+id/smuxStreamsInput"
-                android:layout_width="100dp"
+            <Spinner
+                android:id="@+id/muxStreamsSpinner"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:background="@drawable/button_ghost"
-                android:hint="@string/smux_hint"
-                android:inputType="number"
-                android:paddingHorizontal="10dp"
-                android:singleLine="true"
-                android:textColor="#E5E7EB"
-                android:textColorHint="#6B7280" />
+                android:layout_weight="1"
+                android:background="@drawable/button_ghost" />
         </LinearLayout>
 
         <Button

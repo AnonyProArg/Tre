@@ -11,14 +11,12 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.widget.doAfterTextChanged
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.time.LocalDate
@@ -35,7 +33,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var serverStateLabel: TextView
     private lateinit var tunStackSpinner: Spinner
     private lateinit var muxProtocolSpinner: Spinner
-    private lateinit var smuxStreamsInput: EditText
+    private lateinit var muxStreamsSpinner: Spinner
     private lateinit var toggleVpnButton: Button
     private lateinit var batteryButton: Button
     private lateinit var shareNetButton: Button
@@ -59,7 +57,7 @@ class MainActivity : ComponentActivity() {
         serverStateLabel = findViewById(R.id.serverStateLabel)
         tunStackSpinner = findViewById(R.id.tunStackSpinner)
         muxProtocolSpinner = findViewById(R.id.muxProtocolSpinner)
-        smuxStreamsInput = findViewById(R.id.smuxStreamsInput)
+        muxStreamsSpinner = findViewById(R.id.muxStreamsSpinner)
         toggleVpnButton = findViewById(R.id.startVpnButton)
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
@@ -81,7 +79,7 @@ class MainActivity : ComponentActivity() {
         tunStackSpinner.setSelection(stackValues.indexOf(savedStack).coerceAtLeast(0))
         val savedMux = AppSettings.getMuxProtocol(this)
         muxProtocolSpinner.setSelection(muxValues.indexOf(savedMux).coerceAtLeast(0))
-        smuxStreamsInput.setText(AppSettings.getSmuxMaxStreams(this).toString())
+        bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
 
         accountLabel.text = AppSettings.getAccountSummary(this).ifBlank { getString(R.string.account_unknown) }
         loadServersFromStorage()
@@ -95,10 +93,17 @@ class MainActivity : ComponentActivity() {
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
         }
-        smuxStreamsInput.doAfterTextChanged {
-            saveConfigFromInputs(showToast = false)
-        }
         muxProtocolSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                val protocol = muxProtocolSpinner.selectedItem?.toString().orEmpty()
+                bindMuxStreamsOptions(protocol, AppSettings.getMuxMaxStreams(this@MainActivity, protocol))
+                saveConfigFromInputs(showToast = false)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
+        muxStreamsSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
                 saveConfigFromInputs(showToast = false)
             }
@@ -147,18 +152,30 @@ class MainActivity : ComponentActivity() {
     private fun saveConfigFromInputs(showToast: Boolean): Boolean {
         val stack = tunStackSpinner.selectedItem?.toString().orEmpty()
         val muxProtocol = muxProtocolSpinner.selectedItem?.toString().orEmpty()
-        val smux = smuxStreamsInput.text.toString().toIntOrNull()
+        val muxStreams = muxStreamsSpinner.selectedItem?.toString()?.toIntOrNull()
 
-        if (smux == null) {
-            if (showToast) Toast.makeText(this, "SMUX inválido", Toast.LENGTH_SHORT).show()
+        if (muxStreams == null) {
+            if (showToast) Toast.makeText(this, "MUX inválido", Toast.LENGTH_SHORT).show()
             return false
         }
 
         AppSettings.setTunStack(this, stack)
         AppSettings.setMuxProtocol(this, muxProtocol)
-        AppSettings.setSmuxMaxStreams(this, smux)
+        AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
+    }
+
+    private fun bindMuxStreamsOptions(protocol: String, preferred: Int) {
+        val options = when (protocol.lowercase()) {
+            "h2mux" -> listOf(1, 5, 10, 15, 30)
+            else -> listOf(700, 1000, 2000, 3000, 5000)
+        }
+        val adapter = ArrayAdapter(this, R.layout.spinner_item_selected, options.map { it.toString() })
+        adapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
+        muxStreamsSpinner.adapter = adapter
+        val idx = options.indexOf(preferred.coerceIn(options.first(), options.last())).let { if (it >= 0) it else 0 }
+        muxStreamsSpinner.setSelection(idx, false)
     }
 
     private fun refreshServersFromCentral() {
@@ -318,7 +335,10 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_TUNNEL_DOMAIN, lastAuthDomain)
                 .putExtra(LocalVpnService.EXTRA_TUN_STACK, AppSettings.getTunStack(this))
                 .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, AppSettings.getMuxProtocol(this))
-                .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, AppSettings.getSmuxMaxStreams(this))
+                .putExtra(
+                    LocalVpnService.EXTRA_SMUX_MAX_STREAMS,
+                    AppSettings.getMuxMaxStreams(this, AppSettings.getMuxProtocol(this))
+                )
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

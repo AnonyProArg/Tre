@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.LinearLayout
@@ -48,6 +49,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var customStreamsInput: EditText
     private lateinit var gamerSection: LinearLayout
     private lateinit var gamerSearchInput: EditText
+    private lateinit var gamerPackageInput: EditText
+    private lateinit var addGamerPackageButton: Button
     private lateinit var gamerAppsList: ListView
     private lateinit var customProxySection: LinearLayout
     private lateinit var customProxyHostInput: EditText
@@ -93,6 +96,8 @@ class MainActivity : ComponentActivity() {
         customStreamsInput = findViewById(R.id.customStreamsInput)
         gamerSection = findViewById(R.id.gamerSection)
         gamerSearchInput = findViewById(R.id.gamerSearchInput)
+        gamerPackageInput = findViewById(R.id.gamerPackageInput)
+        addGamerPackageButton = findViewById(R.id.addGamerPackageButton)
         gamerAppsList = findViewById(R.id.gamerAppsList)
         customProxySection = findViewById(R.id.customProxySection)
         customProxyHostInput = findViewById(R.id.customProxyHostInput)
@@ -194,6 +199,9 @@ class MainActivity : ComponentActivity() {
         customPayload2Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
         gamerSearchInput.doAfterTextChanged {
             filterGamerApps(it?.toString().orEmpty())
+        }
+        addGamerPackageButton.setOnClickListener {
+            addManualGamerPackage()
         }
         gamerAppsList.setOnItemClickListener { _, _, position, _ ->
             val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
@@ -368,7 +376,7 @@ class MainActivity : ComponentActivity() {
             val launchable = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
                 .map {
                     val label = it.loadLabel(pm).toString().ifBlank { it.activityInfo.packageName }
-                    label to it.activityInfo.packageName
+                    "$label (${it.activityInfo.packageName})" to it.activityInfo.packageName
                 }
 
             val installed = pm.getInstalledApplications(PackageManager.MATCH_ALL)
@@ -381,7 +389,7 @@ class MainActivity : ComponentActivity() {
                 }
                 .map { app ->
                     val label = pm.getApplicationLabel(app).toString().ifBlank { app.packageName }
-                    label to app.packageName
+                    "$label (${app.packageName})" to app.packageName
                 }
                 .toList()
 
@@ -411,11 +419,34 @@ class MainActivity : ComponentActivity() {
         )
         val rows = filteredLaunchableApps.map { (label, pkg) ->
             val picked = if (selectedGamerPackages.contains(pkg)) " ✅" else ""
-            "$label ($pkg)$picked"
+            "$label$picked"
         }
         gamerAppsAdapter.clear()
         gamerAppsAdapter.addAll(rows)
         gamerAppsAdapter.notifyDataSetChanged()
+    }
+
+    private fun addManualGamerPackage() {
+        val raw = gamerPackageInput.text.toString().trim()
+        if (raw.isBlank()) {
+            Toast.makeText(this, getString(R.string.gamer_package_empty), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val normalized = raw.lowercase()
+        val isKnown = allLaunchableApps.any { it.second.equals(normalized, ignoreCase = true) }
+        if (!isKnown && !normalized.matches(Regex("^[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+$"))) {
+            Toast.makeText(this, getString(R.string.gamer_package_invalid), Toast.LENGTH_LONG).show()
+            return
+        }
+        selectedGamerPackages.add(normalized)
+        AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
+        if (allLaunchableApps.none { it.second == normalized }) {
+            allLaunchableApps = (allLaunchableApps + (normalized to normalized)).sortedBy { it.first.lowercase() }
+        }
+        gamerPackageInput.text?.clear()
+        filterGamerApps(gamerSearchInput.text.toString())
+        saveConfigFromInputs(showToast = false)
+        Toast.makeText(this, getString(R.string.gamer_package_added, normalized), Toast.LENGTH_SHORT).show()
     }
 
     private fun bindMuxStreamsOptions(protocol: String, preferred: Int) {
@@ -604,11 +635,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showTunCompatibilityWarningThen(onContinue: () -> Unit) {
+        if (AppSettings.shouldHideTunWarning(this)) {
+            onContinue()
+            return
+        }
+        val dontShowAgain = CheckBox(this).apply {
+            text = getString(R.string.tun_warning_dont_show_again)
+        }
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.tun_warning_title))
             .setMessage(getString(R.string.tun_warning_message))
+            .setView(dontShowAgain)
             .setCancelable(true)
-            .setPositiveButton(getString(R.string.tun_warning_continue)) { _, _ -> onContinue() }
+            .setPositiveButton(getString(R.string.tun_warning_continue)) { _, _ ->
+                if (dontShowAgain.isChecked) AppSettings.setHideTunWarning(this, true)
+                onContinue()
+            }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }

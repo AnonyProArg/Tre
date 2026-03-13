@@ -464,7 +464,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             customProxyConfig?.host?.takeIf { it.isNotBlank() }?.let { directDomains.add(it) }
         }
         val directDomainsJson = directDomains.joinToString(", ") { "\"$it\"" }
-
         return """
             {
               "log": { "level": "error", "timestamp": false },

@@ -63,12 +63,14 @@ object BlackTunnelClient {
         return hwid
     }
 
-    fun auth(hwid: String, tunnelDomain: String): AccountInfo {
-        val (socket, headers) = openChannel("auth", hwid, tunnelDomain, null)
+    fun auth(hwid: String, tunnelDomain: String, logger: ((String) -> Unit)? = null): AccountInfo {
+        logger?.invoke("AUTH start dominio=$tunnelDomain hwid=$hwid")
+        val (socket, headers) = openChannel("auth", hwid, tunnelDomain, null, logger)
         closeQuietly(socket)
         if (headers.isEmpty()) throw AuthException("Sin respuesta del servidor")
 
         val status = headers["x-status"] ?: "INVALID"
+        logger?.invoke("AUTH response status=$status name=${headers["x-name"] ?: "?"} days=${headers["x-days-left"] ?: "?"}")
 
         return when (status) {
             "OK" -> AccountInfo(
@@ -84,15 +86,17 @@ object BlackTunnelClient {
         }
     }
 
-    fun notifyDisconnect(hwid: String, tunnelDomain: String) {
-        val (socket, _) = openChannel("disconnect", hwid, tunnelDomain, null)
+    fun notifyDisconnect(hwid: String, tunnelDomain: String, logger: ((String) -> Unit)? = null) {
+        val (socket, headers) = openChannel("disconnect", hwid, tunnelDomain, null, logger)
         closeQuietly(socket)
+        logger?.invoke("DISCONNECT notify status=${headers["x-status"] ?: "none"}")
     }
 
     fun startProxy(
         hwid: String,
         tunnelDomain: String,
-        protectSocket: (Socket) -> Unit
+        protectSocket: (Socket) -> Unit,
+        logger: (String) -> Unit
     ): ProxyHandle {
         val stopFlag = AtomicBoolean(false)
         val activeSockets = Collections.synchronizedSet(mutableSetOf<Socket>())
@@ -102,6 +106,7 @@ object BlackTunnelClient {
             soTimeout = 1_000
         }
 
+        logger("Proxy local en $LOCAL_HOST:$LOCAL_PORT dominio=$tunnelDomain")
 
         thread(name = "bt-proxy-accept", isDaemon = true) {
             while (!stopFlag.get()) {
@@ -110,11 +115,12 @@ object BlackTunnelClient {
                     runCatching { protectSocket(client) }
                     activeSockets.add(client)
                     thread(name = "bt-proxy-client", isDaemon = true) {
-                        handleClient(client, hwid, tunnelDomain, protectSocket)
+                        handleClient(client, hwid, tunnelDomain, protectSocket, logger)
                         activeSockets.remove(client)
                     }
                 } catch (_: SocketTimeoutException) {
                 } catch (_: Exception) {
+                    if (!stopFlag.get()) logger("WARN accept proxy falló")
                 }
             }
         }
@@ -126,15 +132,18 @@ object BlackTunnelClient {
         client: Socket,
         hwid: String,
         tunnelDomain: String,
-        protectSocket: (Socket) -> Unit
+        protectSocket: (Socket) -> Unit,
+        logger: (String) -> Unit
     ) {
-        val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, protectSocket)
+        val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, protectSocket, logger)
         if (tunnelSocket == null || headers["x-status"] != "OK") {
+            logger("WARN túnel rechazado: ${headers["x-status"] ?: "ERROR"} dominio=$tunnelDomain")
             closeQuietly(client)
             closeQuietly(tunnelSocket)
             return
         }
 
+        logger("Túnel OK name=${headers["x-name"] ?: "?"} days=${headers["x-days-left"] ?: "?"} active=${headers["x-active"] ?: "?"} dominio=$tunnelDomain")
 
         thread(name = "bt-relay-up", isDaemon = true) { relay(client, tunnelSocket) }
         thread(name = "bt-relay-down", isDaemon = true) { relay(tunnelSocket, client) }
@@ -149,12 +158,10 @@ object BlackTunnelClient {
                 val read = input.read(buf)
                 if (read <= 0) break
                 output.write(buf, 0, read)
+                output.flush()
             }
-            output.flush()
         } catch (_: Exception) {
         } finally {
-            runCatching { src.shutdownInput() }
-            runCatching { dst.shutdownOutput() }
             closeQuietly(src)
             closeQuietly(dst)
         }
@@ -164,7 +171,8 @@ object BlackTunnelClient {
         action: String,
         hwid: String,
         tunnelDomain: String,
-        protectSocket: ((Socket) -> Unit)?
+        protectSocket: ((Socket) -> Unit)?,
+        logger: ((String) -> Unit)?
     ): Pair<Socket?, Map<String, String>> {
         val p1 = ("GET / HTTP/1.1\r\nHost: $PROXY_HOST\r\n\r\n").toByteArray()
         val p2 = (
@@ -175,38 +183,38 @@ object BlackTunnelClient {
                 "Auth: $hwid\r\n\r\n"
             ).toByteArray()
 
-        connectAndSend(action, InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket)
+        connectAndSend(InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket, "ipv6-hard", logger)
             .let { if (it.first != null) return it }
 
         val ipv6ByDns = runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }.getOrDefault(emptyList())
         ipv6ByDns.forEach { ip6 ->
-            connectAndSend(action, InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket)
+            connectAndSend(InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket, "ipv6-dns:${ip6.hostAddress}", logger)
                 .let { if (it.first != null) return it }
         }
 
         val ipv4Direct = runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet4Address>() }.getOrDefault(emptyList())
         ipv4Direct.forEach { ip4 ->
-            connectAndSend(action, InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket)
+            connectAndSend(InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket, "ipv4-direct:${ip4.hostAddress}", logger)
                 .let { if (it.first != null) return it }
         }
 
+        logger?.invoke("canal $action falló en todos los intentos dominio=$tunnelDomain")
         return null to emptyMap()
     }
 
     private fun connectAndSend(
-        action: String,
         address: InetSocketAddress,
         p1: ByteArray?,
         p2: ByteArray,
-        protectSocket: ((Socket) -> Unit)?
+        protectSocket: ((Socket) -> Unit)?,
+        mode: String,
+        logger: ((String) -> Unit)?
     ): Pair<Socket?, Map<String, String>> {
         val socket = Socket()
         return try {
             protectSocket?.invoke(socket)
-            socket.tcpNoDelay = true
-            socket.keepAlive = true
             socket.connect(address, 10_000)
-            socket.soTimeout = 5_000
+            socket.soTimeout = 500
             val output = socket.getOutputStream()
             if (p1 != null) output.write(p1)
             output.write(p2)
@@ -214,35 +222,37 @@ object BlackTunnelClient {
             val raw = readResponse(socket)
             val parsed = parseSecondResponse(raw)
             val headers = parsed.first
+            val partsCount = parsed.second
+            val status = headers["x-status"]
+            logger?.invoke("canal modo=$mode partes=$partsCount status=${status ?: "none"}")
             if (headers["x-status"].isNullOrBlank()) {
                 closeQuietly(socket)
                 null to emptyMap()
             } else {
-                if (action == "tunnel") socket.soTimeout = 0
                 socket to headers
             }
         } catch (e: Exception) {
             closeQuietly(socket)
+            logger?.invoke("canal modo=$mode error=${e.message}")
             null to emptyMap()
         }
     }
 
     private fun readResponse(socket: Socket): ByteArray {
         val input = socket.getInputStream()
-        val out = java.io.ByteArrayOutputStream()
+        val out = ArrayList<Byte>()
         val buf = ByteArray(4096)
-        val deadline = System.currentTimeMillis() + 7_000
-
-        while (System.currentTimeMillis() < deadline && out.size() < 128 * 1024) {
-            val n = try {
-                input.read(buf)
-            } catch (_: SocketTimeoutException) {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            val n = try { input.read(buf) } catch (_: SocketTimeoutException) { break }
+            if (n <= 0) break
+            repeat(n) { i -> out.add(buf[i]) }
+            if (String(buf, 0, n).contains("\r\n\r\n")) {
+                Thread.sleep(50)
+                val extra = try { input.read(buf) } catch (_: Exception) { -1 }
+                if (extra > 0) repeat(extra) { i -> out.add(buf[i]) }
                 break
             }
-            if (n <= 0) break
-            out.write(buf, 0, n)
-            val text = out.toString(Charsets.UTF_8.name())
-            if ("\r\n\r\n" in text) break
         }
         return out.toByteArray()
     }

@@ -40,7 +40,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             ACTION_STOP -> stopVpn()
             else -> startVpn(intent)
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun startVpn(intent: Intent?) {
@@ -67,7 +67,8 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             proxyHandle = BlackTunnelClient.startProxy(
                 hwid = hwid,
                 tunnelDomain = tunnelDomain,
-                protectSocket = { socket -> protect(socket) }
+                protectSocket = { socket -> protect(socket) },
+                logger = ::emitLog
             )
 
             setupLibboxOnce()
@@ -167,7 +168,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 workingPath = filesDir.absolutePath
                 tempPath = cacheDir.absolutePath
                 fixAndroidStack = true
-                debug = false
+                debug = true
             }
             Libbox.setup(opts)
             isLibboxSetupDone.set(true)
@@ -201,7 +202,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val hwid = lastStartIntent?.getStringExtra(EXTRA_HWID)?.trim().orEmpty()
             val domain = lastStartIntent?.getStringExtra(EXTRA_TUNNEL_DOMAIN)?.trim().orEmpty()
             if (hwid.isNotBlank() && domain.isNotBlank()) {
-                BlackTunnelClient.notifyDisconnect(hwid, domain)
+                BlackTunnelClient.notifyDisconnect(hwid, domain, ::emitLog)
             }
             proxyHandle?.stop()
         } catch (e: Exception) {
@@ -328,6 +329,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        emitLog("App removida de recientes, servicio continúa en foreground")
         super.onTaskRemoved(rootIntent)
     }
 
@@ -370,17 +372,15 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, smuxMaxStreams: Int): String {
         return """
             {
-              "log": { "level": "error", "timestamp": false },
+              "log": { "level": "info", "timestamp": true },
               "inbounds": [
                 {
                   "type": "tun",
                   "tag": "tun-in",
                   "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
                   "auto_route": true,
-                  "strict_route": false,
+                  "strict_route": true,
                   "sniff": true,
-                  "sniff_override_destination": true,
-                  "endpoint_independent_nat": true,
                   "stack": "${tunStack}",
                   "exclude_package": ["${APP_PACKAGE_NAME}"]
                 }
@@ -393,17 +393,16 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                   "server_port": 10800,
                   "uuid": "11111111-1111-1111-1111-111111111111",
                   "flow": "",
-                  "packet_encoding": "xudp",
-                  "domain_strategy": "prefer_ipv4",
-                  "network_strategy": "default",
                   "multiplex": {
                     "enabled": true,
                     "protocol": "smux",
                     "max_streams": ${smuxMaxStreams}
-                  }
+                  },
+                  "packet_encoding": "xudp",
+                  "network_strategy": "default"
                 },
                 { "type": "direct", "tag": "direct" },
-                { "type": "block", "tag": "block" }
+                { "type": "block",  "tag": "block" }
               ],
               "route": {
                 "rules": [
@@ -428,6 +427,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun emitLog(message: String) {
+        Log.i(TAG, message)
         VpnLogStore.add(message)
     }
 

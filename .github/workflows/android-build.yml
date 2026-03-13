@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LIBBOX_VERSION: v1.13.2
-      LIBBOX_CACHE_BRANCH: libbox-arm64-cache
-      LIBBOX_CACHE_DIR: libbox-cache/v1.13.2-arm64
+      LIBBOX_CACHE_BRANCH: libbox-full-cache
+      LIBBOX_CACHE_DIR: libbox-cache/v1.13.2
 
     steps:
       - name: Checkout app repository
@@ -36,9 +36,9 @@ jobs:
           git checkout --orphan "$LIBBOX_CACHE_BRANCH"
           git rm -rf . >/dev/null 2>&1 || true
           mkdir -p "$LIBBOX_CACHE_DIR"
-          echo "Cache branch for arm64 libbox artifacts" > "$LIBBOX_CACHE_DIR/.keep"
+          echo "Cache branch for full libbox artifacts" > "$LIBBOX_CACHE_DIR/.keep"
           git add "$LIBBOX_CACHE_DIR/.keep"
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize arm64 libbox cache branch"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize libbox cache branch"
           git push origin "$LIBBOX_CACHE_BRANCH"
           git checkout -
 
@@ -52,10 +52,10 @@ jobs:
           if git show "origin/$LIBBOX_CACHE_BRANCH:$LIBBOX_CACHE_DIR/libbox.aar" > cached-libbox/libbox.aar 2>/dev/null && \
              git show "origin/$LIBBOX_CACHE_BRANCH:$LIBBOX_CACHE_DIR/libbox-sources.jar" > cached-libbox/libbox-sources.jar 2>/dev/null; then
             echo "use_cached=true" >> "$GITHUB_OUTPUT"
-            echo "Se encontraron artifacts arm64 en rama cache"
+            echo "Se encontraron artifacts en rama cache"
           else
             echo "use_cached=false" >> "$GITHUB_OUTPUT"
-            echo "No hay artifacts arm64 en cache para $LIBBOX_VERSION"
+            echo "No hay artifacts en cache para $LIBBOX_VERSION"
           fi
 
       - name: Checkout sing-box source
@@ -108,20 +108,6 @@ jobs:
         working-directory: sing-box-src
         run: go run ./cmd/internal/build_libbox --target android
 
-      - name: Keep only arm64 JNI in libbox.aar
-        if: steps.cache_lookup.outputs.use_cached == 'false'
-        working-directory: sing-box-src
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/libbox-aar-work
-          mkdir -p /tmp/libbox-aar-work
-          cd /tmp/libbox-aar-work
-          unzip -q "$GITHUB_WORKSPACE/sing-box-src/libbox.aar"
-          if [ -d jni ]; then
-            find jni -mindepth 1 -maxdepth 1 -type d ! -name 'arm64-v8a' -exec rm -rf {} +
-          fi
-          zip -qr "$GITHUB_WORKSPACE/sing-box-src/libbox.aar" .
-
       - name: Prepare artifacts output
         run: |
           set -euo pipefail
@@ -134,12 +120,6 @@ jobs:
             cp sing-box-src/libbox-sources.jar out-libbox/libbox-sources.jar
           fi
           ls -lh out-libbox
-
-      - name: Verify AAR ABIs
-        run: |
-          set -euo pipefail
-          echo "=== JNI libs in out-libbox/libbox.aar ==="
-          unzip -l out-libbox/libbox.aar | grep 'jni/' || true
 
       - name: Store artifacts in cache branch
         if: steps.cache_lookup.outputs.use_cached == 'false'
@@ -159,13 +139,13 @@ jobs:
             echo "Sin cambios de artifacts para guardar en cache"
             exit 0
           fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Update libbox arm64 artifacts $LIBBOX_VERSION"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Update libbox full artifacts $LIBBOX_VERSION"
           git push origin "$LIBBOX_CACHE_BRANCH"
 
       - name: Upload libbox artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libbox-v1.13.2-arm64
+          name: libbox-v1.13.2
           path: |
             out-libbox/libbox.aar
             out-libbox/libbox-sources.jar
@@ -174,10 +154,6 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     needs: build-libbox
-    env:
-      CI_KEYSTORE_PATH: app/ci-signing/release.keystore
-      CI_KEY_ALIAS: tre-release
-      CI_KEYSTORE_PASS: tre-release-pass
 
     steps:
       - name: Checkout app
@@ -198,7 +174,7 @@ jobs:
       - name: Download libbox artifacts
         uses: actions/download-artifact@v4
         with:
-          name: libbox-v1.13.2-arm64
+          name: libbox-v1.13.2
           path: app/libs/libbox/
 
       - name: Verify libbox files
@@ -206,32 +182,12 @@ jobs:
           echo "=== Archivos en app/libs/libbox/ ==="
           ls -lh app/libs/libbox/
 
-      - name: Generate CI keystore
-        run: |
-          set -euo pipefail
-          mkdir -p "$(dirname "$CI_KEYSTORE_PATH")"
-          rm -f "$CI_KEYSTORE_PATH"
-          keytool -genkeypair             -noprompt             -keystore "$CI_KEYSTORE_PATH"             -storetype JKS             -alias "$CI_KEY_ALIAS"             -keyalg RSA             -keysize 2048             -validity 10000             -storepass "$CI_KEYSTORE_PASS"             -keypass "$CI_KEYSTORE_PASS"             -dname "CN=Tre,O=Tre,L=Internet,ST=Internet,C=AR"
-          keytool -list -v -keystore "$CI_KEYSTORE_PATH" -storepass "$CI_KEYSTORE_PASS" -alias "$CI_KEY_ALIAS" >/dev/null
+      - name: Build debug APK
+        run: gradle assembleDebug
 
-      - name: Build release APK (signed, arm64)
-        run: |
-          gradle assembleRelease             -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/$CI_KEYSTORE_PATH             -Pandroid.injected.signing.store.password=$CI_KEYSTORE_PASS             -Pandroid.injected.signing.key.alias=$CI_KEY_ALIAS             -Pandroid.injected.signing.key.password=$CI_KEYSTORE_PASS
-
-      - name: Report APK size
-        run: |
-          echo "=== Tamaño APK release ==="
-          ls -lh app/build/outputs/apk/release/
-          APK_PATH=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "No se encontró APK release"
-            exit 1
-          fi
-          du -h "$APK_PATH"
-
-      - name: Upload release APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk-arm64-signed
-          path: app/build/outputs/apk/release/*.apk
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

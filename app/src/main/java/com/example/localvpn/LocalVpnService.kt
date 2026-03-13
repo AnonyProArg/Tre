@@ -33,7 +33,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var libboxServiceStarted = false
     private var lastStartIntent: Intent? = null
     private var isStopping = false
-    private var gamerPackages: Set<String> = emptySet()
     private var performanceProfile: String = "normal"
     private var customProxyConfig: BlackTunnelClient.CustomProxyConfig? = null
 
@@ -66,7 +65,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val tunStack = intentTunStackOrSettings()
             val muxProtocol = intentMuxProtocolOrSettings()
             performanceProfile = intentProfileOrSettings()
-            gamerPackages = intentGamerPackagesOrSettings()
             val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
             customProxyConfig = intentCustomProxyConfigOrSettings()
 
@@ -75,7 +73,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             emitLog("TUN stack sesión: $tunStack")
             emitLog("MUX protocolo sesión: $muxProtocol")
             emitLog("Perfil sesión: $performanceProfile")
-            emitLog("Apps gamer sesión: ${if (gamerPackages.isEmpty()) "(ninguna)" else gamerPackages.joinToString()}" )
             emitLog("MUX max_streams sesión: $smuxMaxStreams")
             if (performanceProfile == "custom_proxy") {
                 val cfg = customProxyConfig ?: throw IllegalArgumentException("Falta configuración custom proxy")
@@ -143,19 +140,9 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun intentProfileOrSettings(): String {
         val fromIntent = lastStartIntent?.getStringExtra(EXTRA_PERFORMANCE_PROFILE)?.trim().orEmpty().lowercase()
         return when (fromIntent) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_proxy" -> fromIntent
+            "battery", "low_end", "normal", "ultra", "custom", "custom_proxy" -> fromIntent
             else -> AppSettings.getPerformanceProfile(this)
         }
-    }
-
-    private fun intentGamerPackagesOrSettings(): Set<String> {
-        val fromIntent = lastStartIntent?.getStringArrayListExtra(EXTRA_GAMER_PACKAGES)
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            .orEmpty()
-        if (fromIntent.isNotEmpty()) return fromIntent
-        return AppSettings.getGamerTargetPackages(this)
     }
 
     private fun intentCustomProxyConfigOrSettings(): BlackTunnelClient.CustomProxyConfig {
@@ -331,46 +318,19 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             builder.addRoute("::", 0)
         }
 
-        if (performanceProfile == "gamer") {
-            var allowedCount = 0
-            val appliedPackages = mutableListOf<String>()
-            if (gamerPackages.isNotEmpty()) {
-                gamerPackages.forEach { pkg ->
-                    try {
-                        builder.addAllowedApplication(pkg)
-                        allowedCount++
-                        appliedPackages += pkg
-                    } catch (e: Exception) {
-                        emitLog("WARN app gamer ignorada ($pkg): ${e.message}")
-                    }
-                }
-            }
-
-            if (allowedCount > 0) {
-                emitLog("Modo gamer activo, apps permitidas en TUN: ${appliedPackages.joinToString()}")
-            } else {
-                try {
-                    builder.addAllowedApplication(APP_PACKAGE_NAME)
-                    emitLog("Modo gamer sin apps válidas: túnel de usuario en espera")
-                } catch (e: Exception) {
-                    emitLog("WARN no se pudo aplicar fallback gamer: ${e.message}")
-                }
-            }
-        } else {
-            val excludePackages = options.getExcludePackage()
-            while (excludePackages.hasNext()) {
-                try {
-                    builder.addDisallowedApplication(excludePackages.next())
-                } catch (_: Exception) {
-                }
-            }
-
+        val excludePackages = options.getExcludePackage()
+        while (excludePackages.hasNext()) {
             try {
-                builder.addDisallowedApplication(APP_PACKAGE_NAME)
-                emitLog("App excluida del TUN: $APP_PACKAGE_NAME")
-            } catch (e: Exception) {
-                emitLog("WARN no se pudo excluir app del TUN: ${e.message}")
+                builder.addDisallowedApplication(excludePackages.next())
+            } catch (_: Exception) {
             }
+        }
+
+        try {
+            builder.addDisallowedApplication(APP_PACKAGE_NAME)
+            emitLog("App excluida del TUN: $APP_PACKAGE_NAME")
+        } catch (e: Exception) {
+            emitLog("WARN no se pudo excluir app del TUN: ${e.message}")
         }
 
         tunFd?.close()
@@ -549,7 +509,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val EXTRA_MUX_PROTOCOL = "extra_mux_protocol"
         const val EXTRA_SMUX_MAX_STREAMS = "extra_smux_max_streams"
         const val EXTRA_PERFORMANCE_PROFILE = "extra_performance_profile"
-        const val EXTRA_GAMER_PACKAGES = "extra_gamer_packages"
         const val EXTRA_CUSTOM_PROXY_HOST = "extra_custom_proxy_host"
         const val EXTRA_CUSTOM_PROXY_PORT = "extra_custom_proxy_port"
         const val EXTRA_CUSTOM_PAYLOAD1 = "extra_custom_payload1"

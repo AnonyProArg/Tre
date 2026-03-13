@@ -136,14 +136,14 @@ object AppSettings {
             ?.lowercase()
             .orEmpty()
         return when (value) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_proxy" -> value
+            "battery", "low_end", "normal", "ultra", "custom", "custom_proxy" -> value
             else -> DEFAULT_PERFORMANCE_PROFILE
         }
     }
 
     fun setPerformanceProfile(context: Context, profile: String) {
         val normalized = when (profile.trim().lowercase()) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_proxy" -> profile.trim().lowercase()
+            "battery", "low_end", "normal", "ultra", "custom", "custom_proxy" -> profile.trim().lowercase()
             else -> DEFAULT_PERFORMANCE_PROFILE
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

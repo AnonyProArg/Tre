@@ -5,12 +5,6 @@
     <string name="copy_id">Copiar ID</string>
     <string name="smux_hint">Streams</string>
     <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
-    <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
-    <string name="gamer_manual_package_hint">Agregar paquete manual (ej: com.juego.app)</string>
-    <string name="gamer_manual_package_add">Agregar</string>
-    <string name="gamer_manual_package_invalid">Paquete inválido. Usa formato tipo com.ejemplo.app</string>
-    <string name="gamer_manual_package_added">Paquete agregado: %1$s</string>
-    <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
     <string name="custom_proxy_host_hint">Host/IP del proxy propio (ej: midominio.com)</string>
     <string name="custom_proxy_port_hint">Puerto del proxy propio (1-65535)</string>
     <string name="custom_payload1_hint">Payload 1 (opcional, se envía primero)</string>
@@ -48,11 +42,10 @@ Importante: después de cambiar TUN debes desconectar y volver a conectar para a
   - Ahorro batería: reduce consumo con buena estabilidad general (usa TUN System por compatibilidad).
   - Normal (default): smux + 5000 para mantener túneles y notificaciones activas.
   - Ultra: configuración agresiva para máxima estabilidad simultánea (usa TUN Gvisor por compatibilidad).
-  - Gamer: permite elegir app(s) de juego para pasar por el túnel; por defecto ninguna seleccionada.
   - Personalizado: permite editar streams manualmente (1-20000).
   - Servidor propio: permite usar proxy/puerto y payloads propios (sin validación de cuenta).
 
-• En Gamer, selecciona la app desde la lista filtrable (incluye apps instaladas del usuario). Si no aparece, puedes agregar el paquete manualmente.
+• Perfil Gamer deshabilitado temporalmente para priorizar estabilidad al conectar.
 
 • TUN Mixed actualmente puede fallar en varios teléfonos. Si no hay datos, prueba entre TUN System y TUN Gvisor.
 

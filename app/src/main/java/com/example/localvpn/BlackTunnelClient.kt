@@ -40,6 +40,13 @@ object BlackTunnelClient {
 
     data class TrafficSnapshot(val uplinkBytes: Long, val downlinkBytes: Long)
 
+    data class CustomProxyConfig(
+        val host: String,
+        val port: Int,
+        val payload1: String,
+        val payload2: String
+    )
+
     class AuthException(message: String) : Exception(message)
 
     class ProxyHandle(
@@ -278,6 +285,102 @@ object BlackTunnelClient {
         done.await()
         closeQuietly(client)
         closeQuietly(tunnelSocket)
+    }
+
+    fun startProxyCustom(
+        config: CustomProxyConfig,
+        protectSocket: (Socket) -> Unit,
+        logger: (String) -> Unit
+    ): ProxyHandle {
+        resetTrafficCounters()
+        val stopFlag = AtomicBoolean(false)
+        val activeSockets = Collections.synchronizedSet(mutableSetOf<Socket>())
+        val server = ServerSocket().apply {
+            reuseAddress = true
+            bind(InetSocketAddress(LOCAL_HOST, LOCAL_PORT))
+            soTimeout = 1_000
+        }
+
+        logger("Proxy local custom en $LOCAL_HOST:$LOCAL_PORT remoto=${config.host}:${config.port}")
+
+        thread(name = "bt-proxy-accept-custom", isDaemon = true) {
+            while (!stopFlag.get()) {
+                try {
+                    val client = server.accept().apply {
+                        tcpNoDelay = true
+                        keepAlive = true
+                        receiveBufferSize = 256 * 1024
+                        sendBufferSize = 256 * 1024
+                    }
+                    runCatching { protectSocket(client) }
+                    activeSockets.add(client)
+                    thread(name = "bt-proxy-client-custom", isDaemon = true) {
+                        handleCustomClient(client, config, protectSocket, logger)
+                        activeSockets.remove(client)
+                    }
+                } catch (_: SocketTimeoutException) {
+                } catch (e: Exception) {
+                    if (!stopFlag.get()) logger("WARN accept proxy custom falló: ${e.message}")
+                }
+            }
+        }
+
+        return ProxyHandle(stopFlag, server, activeSockets)
+    }
+
+    private fun handleCustomClient(
+        client: Socket,
+        config: CustomProxyConfig,
+        protectSocket: (Socket) -> Unit,
+        logger: (String) -> Unit
+    ) {
+        val tunnelSocket = Socket()
+        try {
+            protectSocket(tunnelSocket)
+            tunnelSocket.tcpNoDelay = true
+            tunnelSocket.keepAlive = true
+            tunnelSocket.connect(InetSocketAddress(config.host, config.port), 15_000)
+            tunnelSocket.soTimeout = 12_000
+
+            val output = tunnelSocket.getOutputStream()
+            val p1 = config.payload1.toByteArray(Charsets.UTF_8)
+            val p2 = config.payload2.toByteArray(Charsets.UTF_8)
+            if (p1.isNotEmpty()) {
+                output.write(p1)
+                logger("Custom proxy: payload1 enviado (${p1.size} bytes)")
+            }
+            output.write(p2)
+            output.flush()
+            logger("Custom proxy: payload2 enviado (${p2.size} bytes)")
+
+            val raw = readResponse(tunnelSocket)
+            val rawText = String(raw, Charsets.UTF_8)
+            logger("Custom proxy: respuesta recibida (${raw.size} bytes)")
+            if (!rawText.contains("101")) {
+                logger("WARN custom proxy sin estado 101 en respuesta")
+                closeQuietly(client)
+                closeQuietly(tunnelSocket)
+                return
+            }
+            logger("Custom proxy: estado 101 detectado, túnel abierto")
+            tunnelSocket.soTimeout = 0
+
+            val done = CountDownLatch(2)
+            thread(name = "bt-relay-up-custom", isDaemon = true) {
+                relayOneWay(client, tunnelSocket, isUplink = true)
+                done.countDown()
+            }
+            thread(name = "bt-relay-down-custom", isDaemon = true) {
+                relayOneWay(tunnelSocket, client, isUplink = false)
+                done.countDown()
+            }
+            done.await()
+        } catch (e: Exception) {
+            logger("WARN custom proxy client error=${e.message}")
+        } finally {
+            closeQuietly(client)
+            closeQuietly(tunnelSocket)
+        }
     }
 
     private fun relayOneWay(src: Socket, dst: Socket, isUplink: Boolean) {

@@ -7,6 +7,13 @@
     <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
     <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
     <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
+    <string name="custom_proxy_host_hint">Host/IP del proxy propio (ej: midominio.com)</string>
+    <string name="custom_proxy_port_hint">Puerto del proxy propio (1-65535)</string>
+    <string name="custom_payload1_hint">Payload 1 (opcional, se envía primero)</string>
+    <string name="custom_payload2_hint">Payload 2 (obligatorio, se envía luego)</string>
+    <string name="custom_proxy_host_required">Debes ingresar el host del proxy propio</string>
+    <string name="custom_proxy_port_required">Debes ingresar un puerto válido (1-65535)</string>
+    <string name="custom_payload2_required">Debes ingresar el payload 2 para abrir el túnel</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>
@@ -39,6 +46,7 @@ Importante: después de cambiar TUN debes desconectar y volver a conectar para a
   - Ultra: configuración agresiva para máxima estabilidad simultánea (usa TUN Gvisor por compatibilidad).
   - Gamer: permite elegir app(s) de juego para pasar por el túnel; por defecto ninguna seleccionada.
   - Personalizado: permite editar streams manualmente (1-20000).
+  - Servidor propio: permite usar proxy/puerto y payloads propios (sin validación de cuenta).
 
 • En Gamer, selecciona la app desde la lista filtrable; lo no seleccionado se ignora del túnel gamer.
 

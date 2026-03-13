@@ -17,6 +17,10 @@ object AppSettings {
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
     private const val KEY_SERVER_LIST = "server_list"
+    private const val KEY_CUSTOM_PROXY_HOST = "custom_proxy_host"
+    private const val KEY_CUSTOM_PROXY_PORT = "custom_proxy_port"
+    private const val KEY_CUSTOM_PAYLOAD1 = "custom_payload1"
+    private const val KEY_CUSTOM_PAYLOAD2 = "custom_payload2"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 5000
@@ -132,14 +136,14 @@ object AppSettings {
             ?.lowercase()
             .orEmpty()
         return when (value) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> value
+            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_proxy" -> value
             else -> DEFAULT_PERFORMANCE_PROFILE
         }
     }
 
     fun setPerformanceProfile(context: Context, profile: String) {
         val normalized = when (profile.trim().lowercase()) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> profile.trim().lowercase()
+            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_proxy" -> profile.trim().lowercase()
             else -> DEFAULT_PERFORMANCE_PROFILE
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -226,6 +230,60 @@ object AppSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_ACCOUNT_EXPIRE_EPOCH_DAY, epochDay)
+            .apply()
+    }
+
+
+    fun getCustomProxyHost(context: Context): String {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CUSTOM_PROXY_HOST, "")
+            ?.trim()
+            .orEmpty()
+    }
+
+    fun setCustomProxyHost(context: Context, host: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CUSTOM_PROXY_HOST, host.trim())
+            .apply()
+    }
+
+    fun getCustomProxyPort(context: Context): Int {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_CUSTOM_PROXY_PORT, 80)
+            .coerceIn(1, 65535)
+    }
+
+    fun setCustomProxyPort(context: Context, port: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_CUSTOM_PROXY_PORT, port.coerceIn(1, 65535))
+            .apply()
+    }
+
+    fun getCustomPayload1(context: Context): String {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CUSTOM_PAYLOAD1, "")
+            .orEmpty()
+    }
+
+    fun setCustomPayload1(context: Context, payload: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CUSTOM_PAYLOAD1, payload)
+            .apply()
+    }
+
+    fun getCustomPayload2(context: Context): String {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CUSTOM_PAYLOAD2, "")
+            .orEmpty()
+    }
+
+    fun setCustomPayload2(context: Context, payload: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CUSTOM_PAYLOAD2, payload)
             .apply()
     }
 

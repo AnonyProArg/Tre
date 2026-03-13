@@ -35,6 +35,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var isStopping = false
     private var gamerPackages: Set<String> = emptySet()
     private var performanceProfile: String = "normal"
+    private var customProxyConfig: BlackTunnelClient.CustomProxyConfig? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -67,6 +68,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             performanceProfile = intentProfileOrSettings()
             gamerPackages = intentGamerPackagesOrSettings()
             val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
+            customProxyConfig = intentCustomProxyConfigOrSettings()
 
             emitLog("HWID sesión: $hwid")
             emitLog("Dominio túnel sesión: $tunnelDomain")
@@ -75,13 +77,22 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             emitLog("Perfil sesión: $performanceProfile")
             emitLog("Apps gamer sesión: ${if (gamerPackages.isEmpty()) "(ninguna)" else gamerPackages.joinToString()}" )
             emitLog("MUX max_streams sesión: $smuxMaxStreams")
-
-            proxyHandle = BlackTunnelClient.startProxy(
-                hwid = hwid,
-                tunnelDomain = tunnelDomain,
-                protectSocket = { socket -> protect(socket) },
-                logger = {}
-            )
+            if (performanceProfile == "custom_proxy") {
+                val cfg = customProxyConfig ?: throw IllegalArgumentException("Falta configuración custom proxy")
+                emitLog("Custom proxy sesión: ${cfg.host}:${cfg.port}")
+                proxyHandle = BlackTunnelClient.startProxyCustom(
+                    config = cfg,
+                    protectSocket = { socket -> protect(socket) },
+                    logger = { msg -> emitLog(msg) }
+                )
+            } else {
+                proxyHandle = BlackTunnelClient.startProxy(
+                    hwid = hwid,
+                    tunnelDomain = tunnelDomain,
+                    protectSocket = { socket -> protect(socket) },
+                    logger = { msg -> emitLog(msg) }
+                )
+            }
 
             setupLibboxOnce()
 
@@ -132,7 +143,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun intentProfileOrSettings(): String {
         val fromIntent = lastStartIntent?.getStringExtra(EXTRA_PERFORMANCE_PROFILE)?.trim().orEmpty().lowercase()
         return when (fromIntent) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> fromIntent
+            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_proxy" -> fromIntent
             else -> AppSettings.getPerformanceProfile(this)
         }
     }
@@ -145,6 +156,27 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             .orEmpty()
         if (fromIntent.isNotEmpty()) return fromIntent
         return AppSettings.getGamerTargetPackages(this)
+    }
+
+    private fun intentCustomProxyConfigOrSettings(): BlackTunnelClient.CustomProxyConfig {
+        val host = lastStartIntent?.getStringExtra(EXTRA_CUSTOM_PROXY_HOST)?.trim().orEmpty()
+            .ifBlank { AppSettings.getCustomProxyHost(this) }
+        val port = (lastStartIntent?.getIntExtra(EXTRA_CUSTOM_PROXY_PORT, -1) ?: -1)
+            .takeIf { it in 1..65535 } ?: AppSettings.getCustomProxyPort(this)
+        val payload1 = lastStartIntent?.getStringExtra(EXTRA_CUSTOM_PAYLOAD1)
+            ?: AppSettings.getCustomPayload1(this)
+        val payload2 = lastStartIntent?.getStringExtra(EXTRA_CUSTOM_PAYLOAD2)
+            ?: AppSettings.getCustomPayload2(this)
+
+        if (host.isBlank()) throw IllegalArgumentException("Host custom proxy vacío")
+        if (payload2.isBlank()) throw IllegalArgumentException("Payload 2 custom vacío")
+
+        return BlackTunnelClient.CustomProxyConfig(
+            host = host,
+            port = port,
+            payload1 = payload1,
+            payload2 = payload2
+        )
     }
 
     private fun intentMuxStreamsOrSettings(muxProtocol: String): Int {
@@ -427,6 +459,12 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, muxProtocol: String, smuxMaxStreams: Int): String {
+        val directDomains = mutableListOf(tunnelDomain, "emailmarketing.personal.com.ar")
+        if (performanceProfile == "custom_proxy") {
+            customProxyConfig?.host?.takeIf { it.isNotBlank() }?.let { directDomains.add(it) }
+        }
+        val directDomainsJson = directDomains.joinToString(", ") { "\"$it\"" }
+
         return """
             {
               "log": { "level": "error", "timestamp": false },
@@ -467,7 +505,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                   { "protocol": "dns", "action": "hijack-dns" },
                   { "ip_is_private": true, "outbound": "direct" },
                   {
-                    "domain": ["${tunnelDomain}", "emailmarketing.personal.com.ar"],
+                    "domain": [${directDomainsJson}],
                     "outbound": "direct"
                   },
                   {
@@ -499,6 +537,10 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val EXTRA_SMUX_MAX_STREAMS = "extra_smux_max_streams"
         const val EXTRA_PERFORMANCE_PROFILE = "extra_performance_profile"
         const val EXTRA_GAMER_PACKAGES = "extra_gamer_packages"
+        const val EXTRA_CUSTOM_PROXY_HOST = "extra_custom_proxy_host"
+        const val EXTRA_CUSTOM_PROXY_PORT = "extra_custom_proxy_port"
+        const val EXTRA_CUSTOM_PAYLOAD1 = "extra_custom_payload1"
+        const val EXTRA_CUSTOM_PAYLOAD2 = "extra_custom_payload2"
         private const val NOTIF_CHANNEL_ID = "vpn_foreground"
         private const val NOTIF_ID = 1001
         private val libboxSetupLock = Any()

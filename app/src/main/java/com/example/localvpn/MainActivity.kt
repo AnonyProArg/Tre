@@ -49,6 +49,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var gamerSection: LinearLayout
     private lateinit var gamerSearchInput: EditText
     private lateinit var gamerAppsList: ListView
+    private lateinit var customProxySection: LinearLayout
+    private lateinit var customProxyHostInput: EditText
+    private lateinit var customProxyPortInput: EditText
+    private lateinit var customPayload1Input: EditText
+    private lateinit var customPayload2Input: EditText
     private lateinit var toggleVpnButton: Button
     private lateinit var batteryButton: Button
     private lateinit var shareNetButton: Button
@@ -89,6 +94,11 @@ class MainActivity : ComponentActivity() {
         gamerSection = findViewById(R.id.gamerSection)
         gamerSearchInput = findViewById(R.id.gamerSearchInput)
         gamerAppsList = findViewById(R.id.gamerAppsList)
+        customProxySection = findViewById(R.id.customProxySection)
+        customProxyHostInput = findViewById(R.id.customProxyHostInput)
+        customProxyPortInput = findViewById(R.id.customProxyPortInput)
+        customPayload1Input = findViewById(R.id.customPayload1Input)
+        customPayload2Input = findViewById(R.id.customPayload2Input)
         toggleVpnButton = findViewById(R.id.startVpnButton)
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
@@ -98,8 +108,8 @@ class MainActivity : ComponentActivity() {
         stackAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         tunStackSpinner.adapter = stackAdapter
 
-        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom")
-        val profileLabels = listOf("Gama baja", "Ahorro batería", "Normal", "Ultra", "Gamer", "Personalizado")
+        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom", "custom_proxy")
+        val profileLabels = listOf("Gama baja", "Ahorro batería", "Normal", "Ultra", "Gamer", "Personalizado", "Servidor propio")
         val profileAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, profileLabels)
         profileAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         profileSpinner.adapter = profileAdapter
@@ -121,6 +131,10 @@ class MainActivity : ComponentActivity() {
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
         customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
         selectedGamerPackages = AppSettings.getGamerTargetPackages(this).toMutableSet()
+        customProxyHostInput.setText(AppSettings.getCustomProxyHost(this))
+        customProxyPortInput.setText(AppSettings.getCustomProxyPort(this).toString())
+        customPayload1Input.setText(AppSettings.getCustomPayload1(this))
+        customPayload2Input.setText(AppSettings.getCustomPayload2(this))
         setupGamerAppsUi()
         renderProfileUi(savedProfile)
 
@@ -174,6 +188,10 @@ class MainActivity : ComponentActivity() {
         customStreamsInput.doAfterTextChanged {
             saveConfigFromInputs(showToast = false)
         }
+        customProxyHostInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customProxyPortInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customPayload1Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customPayload2Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
         gamerSearchInput.doAfterTextChanged {
             filterGamerApps(it?.toString().orEmpty())
         }
@@ -247,7 +265,7 @@ class MainActivity : ComponentActivity() {
 
     private fun saveConfigFromInputs(showToast: Boolean): Boolean {
         val stack = tunStackSpinner.selectedItem?.toString().orEmpty()
-        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom")
+        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom", "custom_proxy")
         val selectedProfile = profileValues.getOrElse(profileSpinner.selectedItemPosition.coerceAtLeast(0)) { "normal" }
         val muxProtocol = muxProtocolSpinner.selectedItem?.toString().orEmpty()
 
@@ -270,6 +288,30 @@ class MainActivity : ComponentActivity() {
         }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
         if (selectedProfile == "gamer") AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
+
+        val customHost = customProxyHostInput.text.toString().trim()
+        val customPort = customProxyPortInput.text.toString().trim().toIntOrNull()
+        val payload1 = customPayload1Input.text.toString()
+        val payload2 = customPayload2Input.text.toString()
+        if (selectedProfile == "custom_proxy") {
+            if (customHost.isBlank()) {
+                if (showToast) Toast.makeText(this, getString(R.string.custom_proxy_host_required), Toast.LENGTH_LONG).show()
+                return false
+            }
+            if (customPort == null || customPort !in 1..65535) {
+                if (showToast) Toast.makeText(this, getString(R.string.custom_proxy_port_required), Toast.LENGTH_LONG).show()
+                return false
+            }
+            if (payload2.isBlank()) {
+                if (showToast) Toast.makeText(this, getString(R.string.custom_payload2_required), Toast.LENGTH_LONG).show()
+                return false
+            }
+        }
+        AppSettings.setCustomProxyHost(this, customHost)
+        if (customPort != null) AppSettings.setCustomProxyPort(this, customPort)
+        AppSettings.setCustomPayload1(this, payload1)
+        AppSettings.setCustomPayload2(this, payload2)
+
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
@@ -310,9 +352,11 @@ class MainActivity : ComponentActivity() {
     private fun renderProfileUi(profile: String) {
         val isCustom = profile == "custom"
         val isGamer = profile == "gamer"
-        muxStreamsSpinner.visibility = if (isCustom) android.view.View.GONE else android.view.View.VISIBLE
+        val isCustomProxy = profile == "custom_proxy"
+        muxStreamsSpinner.visibility = if (isCustom || isCustomProxy) android.view.View.GONE else android.view.View.VISIBLE
         customStreamsInput.visibility = if (isCustom) android.view.View.VISIBLE else android.view.View.GONE
         gamerSection.visibility = if (isGamer) android.view.View.VISIBLE else android.view.View.GONE
+        customProxySection.visibility = if (isCustomProxy) android.view.View.VISIBLE else android.view.View.GONE
     }
 
     private fun setupGamerAppsUi() {
@@ -485,7 +529,17 @@ class MainActivity : ComponentActivity() {
     private fun authenticateThenStart() {
         if (!saveConfigFromInputs(showToast = false)) return
 
+        val activeProfile = AppSettings.getPerformanceProfile(this)
         val tunnelDomain = AppSettings.getTunnelDomain(this)
+
+        if (activeProfile == "custom_proxy") {
+            lastAuthOk = true
+            lastAuthDomain = tunnelDomain
+            updateUiState(verified = true, connected = false, status = getString(R.string.status_connecting))
+            requestVpnPermissionAndStart()
+            return
+        }
+
         if (tunnelDomain.isBlank()) {
             Toast.makeText(this, getString(R.string.need_update_servers), Toast.LENGTH_LONG).show()
             return
@@ -597,6 +651,10 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
                 .putExtra(LocalVpnService.EXTRA_PERFORMANCE_PROFILE, activeProfile)
                 .putStringArrayListExtra(LocalVpnService.EXTRA_GAMER_PACKAGES, ArrayList(AppSettings.getGamerTargetPackages(this)))
+                .putExtra(LocalVpnService.EXTRA_CUSTOM_PROXY_HOST, AppSettings.getCustomProxyHost(this))
+                .putExtra(LocalVpnService.EXTRA_CUSTOM_PROXY_PORT, AppSettings.getCustomProxyPort(this))
+                .putExtra(LocalVpnService.EXTRA_CUSTOM_PAYLOAD1, AppSettings.getCustomPayload1(this))
+                .putExtra(LocalVpnService.EXTRA_CUSTOM_PAYLOAD2, AppSettings.getCustomPayload2(this))
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

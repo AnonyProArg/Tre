@@ -12,4 +12,6 @@
     <string name="smux_hint">SMUX</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
+    <string name="battery_title">Optimización de batería</string>
+    <string name="battery_button">Abrir ajustes de batería</string>
 </resources>

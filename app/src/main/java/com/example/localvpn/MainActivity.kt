@@ -4,8 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -86,6 +89,10 @@ class MainActivity : ComponentActivity() {
 
         findViewById<Button>(R.id.clearLogsButton).setOnClickListener {
             logsTextView.text = ""
+        }
+
+        findViewById<Button>(R.id.batteryButton).setOnClickListener {
+            openBatteryOptimizationSettings()
         }
     }
 

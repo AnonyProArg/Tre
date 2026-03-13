@@ -158,10 +158,12 @@ object BlackTunnelClient {
                 val read = input.read(buf)
                 if (read <= 0) break
                 output.write(buf, 0, read)
-                output.flush()
             }
         } catch (_: Exception) {
         } finally {
+            runCatching { src.shutdownInput() }
+            runCatching { dst.shutdownOutput() }
+            runCatching { dst.getOutputStream().flush() }
             closeQuietly(src)
             closeQuietly(dst)
         }
@@ -213,8 +215,10 @@ object BlackTunnelClient {
         val socket = Socket()
         return try {
             protectSocket?.invoke(socket)
+            socket.tcpNoDelay = true
+            socket.keepAlive = true
             socket.connect(address, 10_000)
-            socket.soTimeout = 500
+            socket.soTimeout = 5_000
             val output = socket.getOutputStream()
             if (p1 != null) output.write(p1)
             output.write(p2)
@@ -229,6 +233,7 @@ object BlackTunnelClient {
                 closeQuietly(socket)
                 null to emptyMap()
             } else {
+                if (String(p2, Charsets.UTF_8).contains("Action: tunnel")) socket.soTimeout = 0
                 socket to headers
             }
         } catch (e: Exception) {

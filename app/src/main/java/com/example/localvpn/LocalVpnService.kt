@@ -82,6 +82,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             attachInterfaceProtectorIfAvailable(commandServer)
             libboxServiceStarted = true
 
+            AppSettings.setVpnActive(this, true)
             emitLog("VPN iniciada correctamente")
         } catch (e: Exception) {
             emitLog("ERROR iniciando VPN: ${e.message}")
@@ -223,6 +224,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         libboxServiceStarted = false
         lastStartIntent = null
+        AppSettings.setVpnActive(this, false)
         stopForeground(STOP_FOREGROUND_REMOVE)
 
         if (stopError != null) {
@@ -442,5 +444,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         private const val NOTIF_ID = 1001
         private val libboxSetupLock = Any()
         private val isLibboxSetupDone = AtomicBoolean(false)
+
+        fun isRunning(context: android.content.Context): Boolean = AppSettings.isVpnActive(context)
     }
 }

@@ -3,8 +3,7 @@
     <string name="start_vpn">Conectar</string>
     <string name="stop_vpn">Desconectar</string>
     <string name="copy_id">Copiar ID</string>
-    <string name="save_domain">Guardar</string>
-    <string name="tunnel_domain_hint">Dominio del túnel</string>
+    <string name="save_config">Guardar</string>
     <string name="smux_hint">SMUX</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
@@ -16,5 +15,20 @@
     <string name="status_disconnected">Desconectado</string>
     <string name="status_error">Error de conexión</string>
     <string name="id_copied">Identificador copiado</string>
-    <string name="contact_label">Contacto: t.me/usernamematy • WhatsApp 3834636264</string>
+    <string name="server_default">Servidor #1 Default 🇦🇷</string>
+    <string name="config_saved">Configuración guardada</string>
+    <string name="vpn_started">VPN iniciada</string>
+    <string name="vpn_stopped">VPN detenida</string>
+    <string name="vpn_permission_denied">Permiso de VPN denegado</string>
+    <string name="need_auth">Debes autenticar antes de conectar</string>
+    <string name="info_title">Info</string>
+    <string name="info_text">• TUN Stack: deja "system" por defecto. Si no hay tráfico o hay cortes, prueba "gvisor". "mixed" es intermedio.\n\n• Los cambios de TUN/SMUX aplican al reconectar.\n\n• SMUX: por defecto 32. Subirlo puede mejorar concurrencia pero también consume más batería/RAM.\n\n• Quitar restricciones de batería mejora estabilidad en segundo plano.</string>
+    <string name="contact_title">Contacto</string>
+    <string name="contact_telegram">Telegram</string>
+    <string name="contact_whatsapp">WhatsApp</string>
+    <string name="open_link_error">No se pudo abrir el enlace</string>
+    <string name="share_proxy">Proxy local</string>
+    <string name="share_proxy_title">Compartir proxy local</string>
+    <string name="share_proxy_text">Para pruebas, comparte tu conexión y usa la IP local de este teléfono con puerto %1$d en modo proxy manual.</string>
+    <string name="local_expired">Suscripción vencida localmente, reconecta con una cuenta activa.</string>
 </resources>

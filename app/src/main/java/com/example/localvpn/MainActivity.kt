@@ -20,28 +20,30 @@ import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var logsTextView: TextView
     private lateinit var hwidLabel: TextView
     private lateinit var accountLabel: TextView
+    private lateinit var statusLabel: TextView
     private lateinit var tunnelDomainInput: EditText
     private lateinit var tunStackSpinner: Spinner
     private lateinit var smuxStreamsInput: EditText
+    private lateinit var toggleVpnButton: Button
 
     private var hwid: String = ""
     private var lastAuthOk = false
     private var lastAuthDomain = ""
-
+    private var isVpnConnected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        logsTextView = findViewById(R.id.logsTextView)
         hwidLabel = findViewById(R.id.hwidLabel)
         accountLabel = findViewById(R.id.accountLabel)
+        statusLabel = findViewById(R.id.statusLabel)
         tunnelDomainInput = findViewById(R.id.tunnelDomainInput)
         tunStackSpinner = findViewById(R.id.tunStackSpinner)
         smuxStreamsInput = findViewById(R.id.smuxStreamsInput)
+        toggleVpnButton = findViewById(R.id.startVpnButton)
 
         val stackValues = listOf("system", "gvisor", "mixed")
         tunStackSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, stackValues)
@@ -53,42 +55,24 @@ class MainActivity : ComponentActivity() {
         tunStackSpinner.setSelection(stackValues.indexOf(savedStack).coerceAtLeast(0))
         smuxStreamsInput.setText(AppSettings.getSmuxMaxStreams(this).toString())
 
+        updateUiState(verified = false, connected = false, status = getString(R.string.status_not_validated))
+
         findViewById<Button>(R.id.saveDomainButton).setOnClickListener {
-            val domain = tunnelDomainInput.text.toString().trim()
-            val stack = tunStackSpinner.selectedItem?.toString().orEmpty()
-            val smux = smuxStreamsInput.text.toString().toIntOrNull()
-            if (domain.isBlank()) {
-                Toast.makeText(this, "Dominio inválido", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (smux == null) {
-                Toast.makeText(this, "SMUX inválido", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            AppSettings.setTunnelDomain(this, domain)
-            AppSettings.setTunStack(this, stack)
-            AppSettings.setSmuxMaxStreams(this, smux)
-            Toast.makeText(this, "Configuración guardada", Toast.LENGTH_SHORT).show()
+            saveConfigFromInputs(showToast = true)
         }
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("hwid", hwid))
-            Toast.makeText(this, "HWID copiado", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.id_copied), Toast.LENGTH_SHORT).show()
         }
 
-        findViewById<Button>(R.id.startVpnButton).setOnClickListener { authenticateThenStart() }
-
-        findViewById<Button>(R.id.stopVpnButton).setOnClickListener {
-            startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_STOP))
-            stopService(Intent(this, LocalVpnService::class.java))
-            lastAuthOk = false
-            lastAuthDomain = ""
-            Toast.makeText(this, "VPN detenida", Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<Button>(R.id.clearLogsButton).setOnClickListener {
-            logsTextView.text = ""
+        toggleVpnButton.setOnClickListener {
+            if (isVpnConnected) {
+                stopVpnNow()
+            } else {
+                authenticateThenStart()
+            }
         }
 
         findViewById<Button>(R.id.batteryButton).setOnClickListener {
@@ -96,24 +80,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun authenticateThenStart() {
-        val tunnelDomain = tunnelDomainInput.text.toString().trim()
-        val tunStack = tunStackSpinner.selectedItem?.toString().orEmpty()
-        val smuxStreams = smuxStreamsInput.text.toString().toIntOrNull()
+    private fun saveConfigFromInputs(showToast: Boolean): Boolean {
+        val domain = tunnelDomainInput.text.toString().trim()
+        val stack = tunStackSpinner.selectedItem?.toString().orEmpty()
+        val smux = smuxStreamsInput.text.toString().toIntOrNull()
 
-        if (tunnelDomain.isBlank()) {
-            Toast.makeText(this, "Debes poner un dominio", Toast.LENGTH_SHORT).show()
-            return
+        if (domain.isBlank()) {
+            Toast.makeText(this, "Dominio inválido", Toast.LENGTH_SHORT).show()
+            return false
         }
-        if (smuxStreams == null) {
+        if (smux == null) {
             Toast.makeText(this, "SMUX inválido", Toast.LENGTH_SHORT).show()
-            return
+            return false
         }
 
-        AppSettings.setTunnelDomain(this, tunnelDomain)
-        AppSettings.setTunStack(this, tunStack)
-        AppSettings.setSmuxMaxStreams(this, smuxStreams)
-        Toast.makeText(this, "Verificando HWID...", Toast.LENGTH_SHORT).show()
+        AppSettings.setTunnelDomain(this, domain)
+        AppSettings.setTunStack(this, stack)
+        AppSettings.setSmuxMaxStreams(this, smux)
+        if (showToast) Toast.makeText(this, "Configuración guardada", Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    private fun authenticateThenStart() {
+        if (!saveConfigFromInputs(showToast = false)) return
+
+        val tunnelDomain = tunnelDomainInput.text.toString().trim()
+
+        updateUiState(verified = false, connected = false, status = getString(R.string.status_validating))
 
         thread(name = "auth-thread") {
             try {
@@ -123,16 +116,34 @@ class MainActivity : ComponentActivity() {
                         if (info.premium) " | PREMIUM" else ""
                     lastAuthOk = true
                     lastAuthDomain = tunnelDomain
+                    updateUiState(verified = true, connected = false, status = getString(R.string.status_connecting))
                     requestVpnPermissionAndStart()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     lastAuthOk = false
+                    updateUiState(verified = false, connected = false, status = getString(R.string.status_error))
                     accountLabel.text = "Cuenta: ${e.message}"
                     Toast.makeText(this, "Auth falló: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
+    }
+
+    private fun stopVpnNow() {
+        startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_STOP))
+        stopService(Intent(this, LocalVpnService::class.java))
+        lastAuthOk = false
+        lastAuthDomain = ""
+        updateUiState(verified = false, connected = false, status = getString(R.string.status_disconnected))
+        Toast.makeText(this, "VPN detenida", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateUiState(verified: Boolean, connected: Boolean, status: String) {
+        isVpnConnected = connected
+        toggleVpnButton.text = if (connected) getString(R.string.stop_vpn) else getString(R.string.start_vpn)
+        val prefix = if (verified) "🟢" else "⚪"
+        statusLabel.text = "$prefix $status"
     }
 
     private fun requestVpnPermissionAndStart() {
@@ -152,6 +163,7 @@ class MainActivity : ComponentActivity() {
         if (resultCode == RESULT_OK) {
             if (!lastAuthOk) {
                 Toast.makeText(this, "Debes autenticar antes de conectar", Toast.LENGTH_LONG).show()
+                updateUiState(verified = false, connected = false, status = getString(R.string.status_not_validated))
                 return
             }
 
@@ -163,8 +175,10 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, AppSettings.getSmuxMaxStreams(this))
 
             startService(serviceIntent)
-            Toast.makeText(this, "VPN local iniciada", Toast.LENGTH_SHORT).show()
+            updateUiState(verified = true, connected = true, status = getString(R.string.status_connected))
+            Toast.makeText(this, "VPN iniciada", Toast.LENGTH_SHORT).show()
         } else {
+            updateUiState(verified = false, connected = false, status = getString(R.string.status_disconnected))
             Toast.makeText(this, "Permiso de VPN denegado", Toast.LENGTH_SHORT).show()
         }
     }

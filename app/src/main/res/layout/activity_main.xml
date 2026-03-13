@@ -3,31 +3,48 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F3F4F6"
+    android:background="#0B1220"
     android:padding="16dp">
 
-    <TextView
-        android:id="@+id/title"
+    <LinearLayout
+        android:id="@+id/headerCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textColor="#111827"
-        android:textStyle="bold"
-        android:textSize="22sp"
+        android:background="@drawable/card_surface"
+        android:orientation="vertical"
+        android:padding="14dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
 
-    <TextView
-        android:id="@+id/descriptionLabel"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/description"
-        android:textColor="#374151"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/title" />
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="#E5E7EB"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/statusLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/status_not_validated"
+            android:textColor="#93C5FD"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/accountLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/account_unknown"
+            android:textColor="#D1D5DB"
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/configCard"
@@ -35,11 +52,11 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:background="@drawable/card_surface"
-        android:elevation="1dp"
         android:orientation="vertical"
+        android:padding="14dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/descriptionLabel">
+        app:layout_constraintTop_toBottomOf="@id/headerCard">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -53,7 +70,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="@string/hwid_label"
-                android:textColor="#111827"
+                android:textColor="#E5E7EB"
                 android:textSize="12sp" />
 
             <Button
@@ -63,23 +80,40 @@
                 android:text="@string/copy_id" />
         </LinearLayout>
 
+        <EditText
+            android:id="@+id/tunnelDomainInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:hint="@string/tunnel_domain_hint"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:textColor="#E5E7EB"
+            android:textColorHint="#6B7280" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/tunnelDomainInput"
+            <Spinner
+                android:id="@+id/tunStackSpinner"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="@string/tunnel_domain_hint"
-                android:inputType="textUri"
+                android:layout_weight="1" />
+
+            <EditText
+                android:id="@+id/smuxStreamsInput"
+                android:layout_width="90dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:hint="@string/smux_hint"
+                android:inputType="number"
                 android:singleLine="true"
-                android:textColor="#111827"
-                android:textColorHint="#9CA3AF" />
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
 
             <Button
                 android:id="@+id/saveDomainButton"
@@ -89,145 +123,40 @@
                 android:text="@string/save_domain" />
         </LinearLayout>
 
-        <LinearLayout
+        <Button
+            android:id="@+id/startVpnButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/tunStackLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/tun_stack_label"
-                android:textColor="#111827"
-                android:textStyle="bold" />
-
-            <Spinner
-                android:id="@+id/tunStackSpinner"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1" />
-
-            <EditText
-                android:id="@+id/smuxStreamsInput"
-                android:layout_width="82dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:hint="@string/smux_hint"
-                android:inputType="number"
-                android:singleLine="true"
-                android:textColor="#111827"
-                android:textColorHint="#9CA3AF" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/accountLabel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/account_unknown"
-            android:textColor="#111827" />
+            android:layout_marginTop="12dp"
+            android:text="@string/start_vpn" />
     </LinearLayout>
 
     <LinearLayout
-        android:id="@+id/actionRow"
+        android:id="@+id/toolsCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:orientation="horizontal"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/card_surface"
+        android:orientation="vertical"
+        android:padding="14dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/configCard">
 
         <Button
-            android:id="@+id/startVpnButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/start_vpn" />
-
-        <Button
-            android:id="@+id/stopVpnButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/stop_vpn" />
-
-        <Button
-            android:id="@+id/clearLogsButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/clear_logs"
-            android:visibility="gone" />
-    </LinearLayout>
-
-
-
-    <TextView
-        android:id="@+id/batteryLabel"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="@string/battery_title"
-        android:textColor="#111827"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/actionRow" />
-
-    <Button
-        android:id="@+id/batteryButton"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/battery_button"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/batteryLabel" />
-
-
-    <TextView
-        android:id="@+id/logsLabel"
-        android:visibility="gone"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="@string/logs_label"
-        android:textColor="#111827"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/batteryButton" />
-
-    <ScrollView
-        android:id="@+id/logsScroll"
-        android:visibility="gone"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/log_surface"
-        android:fillViewport="true"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/logsLabel">
-
-        <TextView
-            android:id="@+id/logsTextView"
+            android:id="@+id/batteryButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="12dp"
-            android:textColor="#86EFAC"
-            android:textIsSelectable="true"
-            android:textSize="12sp"
-            android:typeface="monospace" />
+            android:text="@string/battery_button" />
 
-    </ScrollView>
+        <TextView
+            android:id="@+id/contactLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/contact_label"
+            android:textColor="#9CA3AF"
+            android:textSize="12sp" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LIBBOX_VERSION: v1.13.2
-      LIBBOX_CACHE_BRANCH: libbox-full-cache
-      LIBBOX_CACHE_DIR: libbox-cache/v1.13.2
+      LIBBOX_CACHE_BRANCH: libbox-arm64-cache
+      LIBBOX_CACHE_DIR: libbox-cache/v1.13.2-arm64
 
     steps:
       - name: Checkout app repository
@@ -36,7 +36,7 @@ jobs:
           git checkout --orphan "$LIBBOX_CACHE_BRANCH"
           git rm -rf . >/dev/null 2>&1 || true
           mkdir -p "$LIBBOX_CACHE_DIR"
-          echo "Cache branch for full libbox artifacts" > "$LIBBOX_CACHE_DIR/.keep"
+          echo "Cache branch for arm64 libbox artifacts" > "$LIBBOX_CACHE_DIR/.keep"
           git add "$LIBBOX_CACHE_DIR/.keep"
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize libbox cache branch"
           git push origin "$LIBBOX_CACHE_BRANCH"
@@ -121,6 +121,25 @@ jobs:
           fi
           ls -lh out-libbox
 
+
+      - name: Keep only arm64 ABI in libbox AAR
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/libbox-aar
+          mkdir -p /tmp/libbox-aar
+          unzip -q out-libbox/libbox.aar -d /tmp/libbox-aar
+          find /tmp/libbox-aar/jni -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
+          (cd /tmp/libbox-aar && zip -qr "$GITHUB_WORKSPACE/out-libbox/libbox.aar" .)
+
+      - name: Verify AAR ABIs
+        run: |
+          set -euo pipefail
+          unzip -l out-libbox/libbox.aar | grep 'jni/'
+          if unzip -l out-libbox/libbox.aar | grep -E 'jni/(armeabi-v7a|x86|x86_64)/' ; then
+            echo "AAR contiene ABI no permitida"
+            exit 1
+          fi
+
       - name: Store artifacts in cache branch
         if: steps.cache_lookup.outputs.use_cached == 'false'
         env:
@@ -139,13 +158,13 @@ jobs:
             echo "Sin cambios de artifacts para guardar en cache"
             exit 0
           fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Update libbox full artifacts $LIBBOX_VERSION"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Update libbox arm64 artifacts $LIBBOX_VERSION"
           git push origin "$LIBBOX_CACHE_BRANCH"
 
       - name: Upload libbox artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libbox-v1.13.2
+          name: libbox-v1.13.2-arm64
           path: |
             out-libbox/libbox.aar
             out-libbox/libbox-sources.jar
@@ -178,7 +197,7 @@ jobs:
       - name: Download libbox artifacts
         uses: actions/download-artifact@v4
         with:
-          name: libbox-v1.13.2
+          name: libbox-v1.13.2-arm64
           path: app/libs/libbox/
 
       - name: Verify libbox files
@@ -205,6 +224,6 @@ jobs:
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk-signed
+          name: app-release-apk-arm64-signed
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

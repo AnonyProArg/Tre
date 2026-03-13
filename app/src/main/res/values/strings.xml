@@ -1,17 +1,20 @@
 <resources>
-    <string name="app_name">Local VPN Proxy</string>
+    <string name="app_name">Vless VPN</string>
     <string name="start_vpn">Conectar</string>
     <string name="stop_vpn">Desconectar</string>
-    <string name="description">Flujo BlackTunnel: HWID, auth, proxy local y motor libbox.</string>
-    <string name="logs_label">Logs en vivo dentro de la app</string>
-    <string name="clear_logs">Limpiar</string>
     <string name="copy_id">Copiar ID</string>
     <string name="save_domain">Guardar</string>
-    <string name="tunnel_domain_hint">Dominio del túnel (ej: 2.brawlpass.com.ar)</string>
-    <string name="tun_stack_label">TUN stack</string>
+    <string name="tunnel_domain_hint">Dominio del túnel</string>
     <string name="smux_hint">SMUX</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
-    <string name="battery_title">Optimización de batería</string>
-    <string name="battery_button">Abrir ajustes de batería</string>
+    <string name="battery_button">Quitar restricción de batería</string>
+    <string name="status_not_validated">No validado</string>
+    <string name="status_validating">Validando</string>
+    <string name="status_connecting">Conectando</string>
+    <string name="status_connected">Conectado</string>
+    <string name="status_disconnected">Desconectado</string>
+    <string name="status_error">Error de conexión</string>
+    <string name="id_copied">Identificador copiado</string>
+    <string name="contact_label">Contacto: t.me/usernamematy • WhatsApp 3834636264</string>
 </resources>

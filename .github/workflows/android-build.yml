@@ -122,15 +122,45 @@ jobs:
           ls -lh out-libbox
 
 
-      - name: Keep only arm64 ABI in libbox AAR
+      - name: Keep only arm64 ABI and strip libbox native symbols
         run: |
           set -euo pipefail
           rm -rf /tmp/libbox-aar
           mkdir -p /tmp/libbox-aar
+
+          BEFORE_AAR_BYTES=$(stat -c%s out-libbox/libbox.aar)
           unzip -q out-libbox/libbox.aar -d /tmp/libbox-aar
+
+          # Conserva solo arm64 para minimizar tamaño.
           find /tmp/libbox-aar/jni -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
+
+          # El recorte más agresivo/sano: eliminar símbolos de depuración de los .so.
+          STRIP_BIN=""
+          if command -v llvm-strip >/dev/null 2>&1; then
+            STRIP_BIN="llvm-strip"
+          elif command -v strip >/dev/null 2>&1; then
+            STRIP_BIN="strip"
+          fi
+
+          if [ -n "$STRIP_BIN" ]; then
+            while IFS= read -r -d '' SO_FILE; do
+              "$STRIP_BIN" --strip-unneeded "$SO_FILE" || "$STRIP_BIN" "$SO_FILE"
+            done < <(find /tmp/libbox-aar/jni -type f -name '*.so' -print0)
+          else
+            echo "No hay strip tool disponible; se omite stripping de símbolos"
+          fi
+
           rm -f out-libbox/libbox.aar
-          (cd /tmp/libbox-aar && zip -X -r "$GITHUB_WORKSPACE/out-libbox/libbox.aar" .)
+          (cd /tmp/libbox-aar && zip -X -9 -r "$GITHUB_WORKSPACE/out-libbox/libbox.aar" .)
+
+          AFTER_AAR_BYTES=$(stat -c%s out-libbox/libbox.aar)
+          python - <<PY_SIZE
+          b=$BEFORE_AAR_BYTES
+          a=$AFTER_AAR_BYTES
+          print(f"Tamaño AAR antes: {b/1024/1024:.2f} MB")
+          print(f"Tamaño AAR después: {a/1024/1024:.2f} MB")
+          print(f"Ahorro: {(b-a)/1024/1024:.2f} MB ({((b-a)/b*100) if b else 0:.2f}%)")
+          PY_SIZE
 
       - name: Verify AAR ABIs
         run: |

@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
     private var filteredLaunchableApps: List<Pair<String, String>> = emptyList()
     private lateinit var gamerAppsAdapter: ArrayAdapter<String>
     private var selectedGamerPackages: MutableSet<String> = linkedSetOf()
+    private var suppressNextProfilePreset = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -138,6 +139,12 @@ class MainActivity : ComponentActivity() {
         profileSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
                 val profile = profileValues.getOrElse(position) { "normal" }
+                if (suppressNextProfilePreset) {
+                    suppressNextProfilePreset = false
+                    renderProfileUi(profile)
+                    saveConfigFromInputs(showToast = false)
+                    return
+                }
                 applyProfilePreset(profile, muxValues)
                 renderProfileUi(profile)
                 saveConfigFromInputs(showToast = false)

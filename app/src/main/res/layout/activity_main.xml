@@ -36,6 +36,15 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/trafficLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/traffic_idle"
+            android:textColor="#9CA3AF"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/accountLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

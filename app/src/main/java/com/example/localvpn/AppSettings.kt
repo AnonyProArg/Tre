@@ -16,8 +16,8 @@ object AppSettings {
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 1000
-    private const val DEFAULT_H2MUX_MAX_STREAMS = 5
-    private const val DEFAULT_MUX_PROTOCOL = "h2mux"
+    private const val DEFAULT_H2MUX_MAX_STREAMS = 1000
+    private const val DEFAULT_MUX_PROTOCOL = "smux"
 
     fun getTunnelDomain(context: Context): String {
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -73,13 +73,13 @@ object AppSettings {
     fun getH2MuxMaxStreams(context: Context): Int {
         val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_H2MUX_MAX_STREAMS, DEFAULT_H2MUX_MAX_STREAMS)
-        return value.coerceIn(1, 30)
+        return value.coerceIn(700, 5000)
     }
 
     fun setH2MuxMaxStreams(context: Context, value: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putInt(KEY_H2MUX_MAX_STREAMS, value.coerceIn(1, 30))
+            .putInt(KEY_H2MUX_MAX_STREAMS, value.coerceIn(700, 5000))
             .apply()
     }
 

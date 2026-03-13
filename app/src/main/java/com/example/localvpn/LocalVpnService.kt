@@ -126,7 +126,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun intentMuxStreamsOrSettings(muxProtocol: String): Int {
         val fromIntent = lastStartIntent?.getIntExtra(EXTRA_SMUX_MAX_STREAMS, -1) ?: -1
         if (fromIntent > 0) {
-            return if (muxProtocol == "h2mux") fromIntent.coerceIn(1, 30) else fromIntent.coerceIn(700, 5000)
+            return fromIntent.coerceIn(700, 5000)
         }
         emitLog("WARN EXTRA_SMUX_MAX_STREAMS ausente, usando ajuste guardado")
         return AppSettings.getMuxMaxStreams(this, muxProtocol)

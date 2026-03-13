@@ -14,6 +14,7 @@ import java.util.LinkedHashSet
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 object BlackTunnelClient {
@@ -37,6 +38,8 @@ object BlackTunnelClient {
 
     data class ServerInfo(val host: String, val region: String, val status: String)
 
+    data class TrafficSnapshot(val uplinkBytes: Long, val downlinkBytes: Long)
+
     class AuthException(message: String) : Exception(message)
 
     class ProxyHandle(
@@ -46,6 +49,7 @@ object BlackTunnelClient {
     ) {
         fun stop() {
             stopFlag.set(true)
+            resetTrafficCounters()
             runCatching { serverSocket?.close() }
             synchronized(activeSockets) {
                 activeSockets.forEach { runCatching { it.close() } }
@@ -210,6 +214,7 @@ object BlackTunnelClient {
         protectSocket: (Socket) -> Unit,
         logger: (String) -> Unit
     ): ProxyHandle {
+        resetTrafficCounters()
         val stopFlag = AtomicBoolean(false)
         val activeSockets = Collections.synchronizedSet(mutableSetOf<Socket>())
         val server = ServerSocket().apply {
@@ -262,11 +267,11 @@ object BlackTunnelClient {
 
         val done = CountDownLatch(2)
         thread(name = "bt-relay-up", isDaemon = true) {
-            relayOneWay(client, tunnelSocket)
+            relayOneWay(client, tunnelSocket, isUplink = true)
             done.countDown()
         }
         thread(name = "bt-relay-down", isDaemon = true) {
-            relayOneWay(tunnelSocket, client)
+            relayOneWay(tunnelSocket, client, isUplink = false)
             done.countDown()
         }
 
@@ -275,7 +280,7 @@ object BlackTunnelClient {
         closeQuietly(tunnelSocket)
     }
 
-    private fun relayOneWay(src: Socket, dst: Socket) {
+    private fun relayOneWay(src: Socket, dst: Socket, isUplink: Boolean) {
         try {
             val buf = ByteArray(64 * 1024)
             val input = src.getInputStream()
@@ -284,6 +289,7 @@ object BlackTunnelClient {
                 val read = input.read(buf)
                 if (read <= 0) break
                 output.write(buf, 0, read)
+                if (isUplink) uplinkBytes.addAndGet(read.toLong()) else downlinkBytes.addAndGet(read.toLong())
             }
             output.flush()
         } catch (_: Exception) {
@@ -472,11 +478,25 @@ object BlackTunnelClient {
         return result
     }
 
+    fun getTrafficSnapshot(): TrafficSnapshot {
+        return TrafficSnapshot(
+            uplinkBytes = uplinkBytes.get(),
+            downlinkBytes = downlinkBytes.get()
+        )
+    }
+
+    private fun resetTrafficCounters() {
+        uplinkBytes.set(0)
+        downlinkBytes.set(0)
+    }
+
     private fun closeQuietly(socket: Socket?) {
         runCatching { socket?.close() }
     }
 
     private const val CHANNEL_CONNECT_RETRIES = 3
+    private val uplinkBytes = AtomicLong(0)
+    private val downlinkBytes = AtomicLong(0)
     private val ipv6FeedbackLock = Any()
     private var lastGoodIpv6Literal: String = ""
     private var lastGoodDomainHint: String = ""

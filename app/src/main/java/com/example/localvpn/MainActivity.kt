@@ -7,6 +7,8 @@ import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.ArrayAdapter
@@ -29,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var hwidLabel: TextView
     private lateinit var accountLabel: TextView
     private lateinit var statusLabel: TextView
+    private lateinit var trafficLabel: TextView
     private lateinit var serverSpinner: Spinner
     private lateinit var serverStateLabel: TextView
     private lateinit var tunStackSpinner: Spinner
@@ -44,6 +47,11 @@ class MainActivity : ComponentActivity() {
     private var isVpnConnected = false
     private var shareNetEnabled = false
     private var serverList: List<AppSettings.SavedServer> = emptyList()
+    private val trafficUpdateHandler = Handler(Looper.getMainLooper())
+    private var lastTrafficUp = 0L
+    private var lastTrafficDown = 0L
+    private var lastTrafficTs = 0L
+    private var lastToggleAtMs = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -53,6 +61,7 @@ class MainActivity : ComponentActivity() {
         hwidLabel = findViewById(R.id.hwidLabel)
         accountLabel = findViewById(R.id.accountLabel)
         statusLabel = findViewById(R.id.statusLabel)
+        trafficLabel = findViewById(R.id.trafficLabel)
         serverSpinner = findViewById(R.id.serverSpinner)
         serverStateLabel = findViewById(R.id.serverStateLabel)
         tunStackSpinner = findViewById(R.id.tunStackSpinner)
@@ -122,6 +131,9 @@ class MainActivity : ComponentActivity() {
         }
 
         toggleVpnButton.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - lastToggleAtMs < 1200L) return@setOnClickListener
+            lastToggleAtMs = now
             if (isVpnConnected) stopVpnNow() else authenticateThenStart()
         }
 
@@ -140,6 +152,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         saveConfigFromInputs(showToast = false)
+        stopTrafficUpdates()
         super.onPause()
     }
 
@@ -147,6 +160,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshPersistentConnectionState()
         refreshBatteryButtonVisibility()
+        startTrafficUpdates()
     }
 
     private fun saveConfigFromInputs(showToast: Boolean): Boolean {
@@ -167,15 +181,48 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun bindMuxStreamsOptions(protocol: String, preferred: Int) {
-        val options = when (protocol.lowercase()) {
-            "h2mux" -> listOf(1, 5, 10, 15, 30)
-            else -> listOf(700, 1000, 2000, 3000, 5000)
-        }
+        val options = listOf(700, 1000, 2000, 3000, 5000)
         val adapter = ArrayAdapter(this, R.layout.spinner_item_selected, options.map { it.toString() })
         adapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         muxStreamsSpinner.adapter = adapter
         val idx = options.indexOf(preferred.coerceIn(options.first(), options.last())).let { if (it >= 0) it else 0 }
         muxStreamsSpinner.setSelection(idx, false)
+    }
+
+    private fun startTrafficUpdates() {
+        lastTrafficUp = 0L
+        lastTrafficDown = 0L
+        lastTrafficTs = 0L
+        trafficUpdateHandler.removeCallbacks(trafficTicker)
+        trafficUpdateHandler.post(trafficTicker)
+    }
+
+    private fun stopTrafficUpdates() {
+        trafficUpdateHandler.removeCallbacks(trafficTicker)
+    }
+
+    private val trafficTicker = object : Runnable {
+        override fun run() {
+            val snapshot = BlackTunnelClient.getTrafficSnapshot()
+            val now = System.currentTimeMillis()
+            val deltaMs = (now - lastTrafficTs).coerceAtLeast(1L)
+            val upRate = if (lastTrafficTs == 0L) 0L else ((snapshot.uplinkBytes - lastTrafficUp).coerceAtLeast(0L) * 1000L) / deltaMs
+            val downRate = if (lastTrafficTs == 0L) 0L else ((snapshot.downlinkBytes - lastTrafficDown).coerceAtLeast(0L) * 1000L) / deltaMs
+            lastTrafficUp = snapshot.uplinkBytes
+            lastTrafficDown = snapshot.downlinkBytes
+            lastTrafficTs = now
+            trafficLabel.text = getString(
+                R.string.traffic_status,
+                formatBytesPerSecond(downRate),
+                formatBytesPerSecond(upRate)
+            )
+            trafficUpdateHandler.postDelayed(this, 1200L)
+        }
+    }
+
+    private fun formatBytesPerSecond(value: Long): String {
+        val kb = value / 1024.0
+        return if (kb >= 1024.0) String.format("%.1f MB/s", kb / 1024.0) else String.format("%.0f KB/s", kb)
     }
 
     private fun refreshServersFromCentral() {

@@ -13,6 +13,8 @@
     <string name="status_connected">Conectado</string>
     <string name="status_disconnected">Desconectado</string>
     <string name="status_error">Error de conexión</string>
+    <string name="traffic_idle">Tráfico: ↓ 0 KB/s | ↑ 0 KB/s</string>
+    <string name="traffic_status">Tráfico: ↓ %1$s | ↑ %2$s</string>
     <string name="id_copied">Identificador copiado</string>
     <string name="config_saved">Configuración guardada</string>
     <string name="vpn_started">VPN iniciada</string>
@@ -24,11 +26,13 @@
 
 • Los cambios de TUN/MUX se aplican al desconectar y volver a conectar.
 
-• MUX configurable:
-  - h2mux: perfiles 1, 5, 10, 15, 30 (default recomendado: 5).
-  - smux: perfiles 700, 1000, 2000, 3000, 5000.
+• MUX configurable (smux/h2mux) con los mismos perfiles: 700, 1000, 2000, 3000, 5000.
+
+• Default recomendado: smux + 1000.
 
 • Subir streams mejora estabilidad simultánea y mantiene mejor conexiones activas (WhatsApp/Telegram/Chrome), pero puede aumentar consumo de batería.
+
+• El indicador de tráfico (↓/↑) es superficial para verificar actividad del túnel.
 
 • Quitar restricciones de batería ayuda a evitar micro cortes.</string>
     <string name="contact_title">Contacto</string>

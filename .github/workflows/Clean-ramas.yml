@@ -1,4 +1,4 @@
-name: Cleanup old branches
+name: Cleanup Codex Branches
 
 on:
   workflow_dispatch:
@@ -10,39 +10,25 @@ jobs:
       contents: write
 
     steps:
-      - name: Eliminar todas las ramas excepto las indicadas
+      - name: Eliminar solo las ramas de codex/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: "AnonyProArg/Tre"
         run: |
-          KEEP=(
-            "main"
-            "master"
-            "libbox-full-cache"
-            "codex/clean-repository-by-removing-unnecessary-files-u8nqf4"
-          )
+          echo "Obteniendo lista de ramas..."
 
-          # obtener todas las ramas via API
           branches=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/$REPO/branches?per_page=100" \
             | grep '"name"' | sed 's/.*"name": "\(.*\)".*/\1/')
 
           for branch in $branches; do
-            keep=false
-            for k in "${KEEP[@]}"; do
-              if [ "$branch" = "$k" ]; then
-                keep=true
-                break
-              fi
-            done
-
-            if [ "$keep" = true ]; then
-              echo "Conservando: $branch"
-            else
-              echo "Eliminando:  $branch"
+            if [[ "$branch" == codex/* ]]; then
+              echo "Eliminando: $branch"
               curl -s -X DELETE \
                 -H "Authorization: token $GH_TOKEN" \
                 "https://api.github.com/repos/$REPO/git/refs/heads/$branch"
               echo "  OK"
+            else
+              echo "Conservando: $branch"
             fi
           done

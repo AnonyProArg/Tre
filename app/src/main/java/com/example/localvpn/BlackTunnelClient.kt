@@ -197,6 +197,7 @@ object BlackTunnelClient {
     ) {
         val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, protectSocket, logger)
         if (tunnelSocket == null || headers["x-status"] != "OK") {
+            logger("WARN canal túnel rechazado o sin respuesta")
             closeQuietly(client)
             closeQuietly(tunnelSocket)
             return
@@ -251,19 +252,26 @@ object BlackTunnelClient {
                 "Auth: $hwid\r\n\r\n"
             ).toByteArray()
 
-        connectAndSend(InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket, logger)
-            .let { if (it.first != null) return it }
-
-        val ipv6ByDns = runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }.getOrDefault(emptyList())
-        ipv6ByDns.forEach { ip6 ->
-            connectAndSend(InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket, logger)
+        repeat(CHANNEL_CONNECT_RETRIES) { attempt ->
+            connectAndSend(InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket, logger)
                 .let { if (it.first != null) return it }
-        }
 
-        val ipv4Direct = runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet4Address>() }.getOrDefault(emptyList())
-        ipv4Direct.forEach { ip4 ->
-            connectAndSend(InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket, logger)
-                .let { if (it.first != null) return it }
+            val ipv6ByDns = runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }.getOrDefault(emptyList())
+            ipv6ByDns.forEach { ip6 ->
+                connectAndSend(InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket, logger)
+                    .let { if (it.first != null) return it }
+            }
+
+            val ipv4Direct = runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet4Address>() }.getOrDefault(emptyList())
+            ipv4Direct.forEach { ip4 ->
+                connectAndSend(InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket, logger)
+                    .let { if (it.first != null) return it }
+            }
+
+            if (attempt < CHANNEL_CONNECT_RETRIES - 1) {
+                logger?.invoke("Reintentando canal $action (${attempt + 1}/$CHANNEL_CONNECT_RETRIES)")
+                Thread.sleep((400L * (attempt + 1)).coerceAtMost(1_200L))
+            }
         }
 
         return null to emptyMap()
@@ -281,8 +289,8 @@ object BlackTunnelClient {
             protectSocket?.invoke(socket)
             socket.tcpNoDelay = true
             socket.keepAlive = true
-            socket.connect(address, 10_000)
-            socket.soTimeout = 8_000
+            socket.connect(address, 15_000)
+            socket.soTimeout = 12_000
             socket.receiveBufferSize = 256 * 1024
             socket.sendBufferSize = 256 * 1024
             val output = socket.getOutputStream()
@@ -309,7 +317,7 @@ object BlackTunnelClient {
         val input = socket.getInputStream()
         val out = ByteArrayOutputStream()
         val buf = ByteArray(4096)
-        val deadline = System.currentTimeMillis() + 8_000
+        val deadline = System.currentTimeMillis() + 12_000
         while (System.currentTimeMillis() < deadline) {
             val n = try { input.read(buf) } catch (_: SocketTimeoutException) { break }
             if (n <= 0) break
@@ -344,4 +352,6 @@ object BlackTunnelClient {
     private fun closeQuietly(socket: Socket?) {
         runCatching { socket?.close() }
     }
+
+    private const val CHANNEL_CONNECT_RETRIES = 3
 }

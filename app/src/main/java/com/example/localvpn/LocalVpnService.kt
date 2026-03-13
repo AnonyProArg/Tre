@@ -42,7 +42,9 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 startVpn(intent)
             }
         }
-        return START_NOT_STICKY
+        // Permite que Android rehaga el servicio ante cierres agresivos del proceso
+        // (OEM killers, presión de memoria, etc.) para reducir micro-cortes.
+        return START_STICKY
     }
 
     private fun startVpn(intent: Intent?) {
@@ -332,6 +334,11 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        if (commandServer == null || isStopping) return
+        runCatching {
+            val restartIntent = Intent(this, LocalVpnService::class.java).setAction(ACTION_START)
+            startService(restartIntent)
+        }
     }
 
     override fun onRevoke() {

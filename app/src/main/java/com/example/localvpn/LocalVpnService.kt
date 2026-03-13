@@ -332,16 +332,29 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
 
         if (performanceProfile == "gamer") {
-            try {
-                if (gamerPackages.isNotEmpty()) {
-                    gamerPackages.forEach { pkg -> builder.addAllowedApplication(pkg) }
-                    emitLog("Modo gamer activo, apps permitidas en TUN: ${gamerPackages.joinToString()}")
-                } else {
-                    builder.addAllowedApplication(APP_PACKAGE_NAME)
-                    emitLog("Modo gamer sin app seleccionada: túnel de usuario en espera")
+            var allowedCount = 0
+            val appliedPackages = mutableListOf<String>()
+            if (gamerPackages.isNotEmpty()) {
+                gamerPackages.forEach { pkg ->
+                    try {
+                        builder.addAllowedApplication(pkg)
+                        allowedCount++
+                        appliedPackages += pkg
+                    } catch (e: Exception) {
+                        emitLog("WARN app gamer ignorada ($pkg): ${e.message}")
+                    }
                 }
-            } catch (e: Exception) {
-                emitLog("WARN no se pudo aplicar filtro gamer: ${e.message}")
+            }
+
+            if (allowedCount > 0) {
+                emitLog("Modo gamer activo, apps permitidas en TUN: ${appliedPackages.joinToString()}")
+            } else {
+                try {
+                    builder.addAllowedApplication(APP_PACKAGE_NAME)
+                    emitLog("Modo gamer sin apps válidas: túnel de usuario en espera")
+                } catch (e: Exception) {
+                    emitLog("WARN no se pudo aplicar fallback gamer: ${e.message}")
+                }
             }
         } else {
             val excludePackages = options.getExcludePackage()

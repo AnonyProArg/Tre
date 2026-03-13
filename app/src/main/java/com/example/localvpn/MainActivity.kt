@@ -685,7 +685,6 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, activeProtocol)
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
                 .putExtra(LocalVpnService.EXTRA_PERFORMANCE_PROFILE, activeProfile)
-                .putStringArrayListExtra(LocalVpnService.EXTRA_GAMER_PACKAGES, ArrayList(AppSettings.getGamerTargetPackages(this)))
                 .putExtra(LocalVpnService.EXTRA_CUSTOM_PROXY_HOST, AppSettings.getCustomProxyHost(this))
                 .putExtra(LocalVpnService.EXTRA_CUSTOM_PROXY_PORT, AppSettings.getCustomProxyPort(this))
                 .putExtra(LocalVpnService.EXTRA_CUSTOM_PAYLOAD1, AppSettings.getCustomPayload1(this))

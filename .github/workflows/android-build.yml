@@ -154,6 +154,10 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     needs: build-libbox
+    env:
+      CI_KEYSTORE_PATH: app/ci-signing/release.keystore
+      CI_KEY_ALIAS: tre-release
+      CI_KEYSTORE_PASS: tre-release-pass
 
     steps:
       - name: Checkout app
@@ -182,12 +186,21 @@ jobs:
           echo "=== Archivos en app/libs/libbox/ ==="
           ls -lh app/libs/libbox/
 
-      - name: Build debug APK
-        run: gradle assembleDebug
+      - name: Generate CI keystore
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$CI_KEYSTORE_PATH")"
+          rm -f "$CI_KEYSTORE_PATH"
+          keytool -genkeypair -noprompt -keystore "$CI_KEYSTORE_PATH" -storetype JKS -alias "$CI_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$CI_KEYSTORE_PASS" -keypass "$CI_KEYSTORE_PASS" -dname "CN=Tre,O=Tre,L=Internet,ST=Internet,C=AR"
+          keytool -list -v -keystore "$CI_KEYSTORE_PATH" -storepass "$CI_KEYSTORE_PASS" -alias "$CI_KEY_ALIAS" >/dev/null
 
-      - name: Upload debug APK
+      - name: Build release APK (signed)
+        run: |
+          gradle assembleRelease             -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/$CI_KEYSTORE_PATH             -Pandroid.injected.signing.store.password=$CI_KEYSTORE_PASS             -Pandroid.injected.signing.key.alias=$CI_KEY_ALIAS             -Pandroid.injected.signing.key.password=$CI_KEYSTORE_PASS
+
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: app-release-apk-signed
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

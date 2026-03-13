@@ -16,6 +16,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.LinearLayout
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.widget.Spinner
 import android.widget.TextView
@@ -25,6 +26,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.widget.doAfterTextChanged
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -65,7 +67,7 @@ class MainActivity : ComponentActivity() {
     private var allLaunchableApps: List<Pair<String, String>> = emptyList()
     private var filteredLaunchableApps: List<Pair<String, String>> = emptyList()
     private lateinit var gamerAppsAdapter: ArrayAdapter<String>
-    private var selectedGamerPackage: String = ""
+    private var selectedGamerPackages: MutableSet<String> = linkedSetOf()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -117,7 +119,7 @@ class MainActivity : ComponentActivity() {
         muxProtocolSpinner.setSelection(muxValues.indexOf(savedMux).coerceAtLeast(0))
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
         customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
-        selectedGamerPackage = AppSettings.getGamerTargetPackage(this)
+        selectedGamerPackages = AppSettings.getGamerTargetPackages(this).toMutableSet()
         setupGamerAppsUi()
         renderProfileUi(savedProfile)
 
@@ -170,11 +172,23 @@ class MainActivity : ComponentActivity() {
         }
         gamerAppsList.setOnItemClickListener { _, _, position, _ ->
             val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
-            selectedGamerPackage = selected.second
-            AppSettings.setGamerTargetPackage(this, selected.second)
+            val pkg = selected.second
+            val nowSelected = if (selectedGamerPackages.contains(pkg)) {
+                selectedGamerPackages.remove(pkg)
+                false
+            } else {
+                selectedGamerPackages.add(pkg)
+                true
+            }
+            AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
             filterGamerApps(gamerSearchInput.text.toString())
             saveConfigFromInputs(showToast = false)
-            Toast.makeText(this, getString(R.string.gamer_selected_app, selected.first), Toast.LENGTH_SHORT).show()
+            val msg = if (nowSelected) {
+                getString(R.string.gamer_selected_app, selected.first)
+            } else {
+                "App gamer deseleccionada: ${selected.first}"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
@@ -244,7 +258,7 @@ class MainActivity : ComponentActivity() {
             AppSettings.setCustomMuxMaxStreams(this, muxStreams)
         }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
-        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackage(this, selectedGamerPackage)
+        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
@@ -296,31 +310,52 @@ class MainActivity : ComponentActivity() {
         thread(name = "apps-loader") {
             val pm = packageManager
             val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val apps = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+            val launchable = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
                 .map {
                     val label = it.loadLabel(pm).toString().ifBlank { it.activityInfo.packageName }
                     label to it.activityInfo.packageName
                 }
+
+            val installed = pm.getInstalledApplications(PackageManager.MATCH_ALL)
+                .asSequence()
+                .filterNot { it.packageName == packageName }
+                .filter { app ->
+                    val hasCode = (app.flags and ApplicationInfo.FLAG_HAS_CODE) != 0
+                    val isInstalled = (app.flags and ApplicationInfo.FLAG_INSTALLED) != 0
+                    hasCode && isInstalled
+                }
+                .map { app ->
+                    val label = pm.getApplicationLabel(app).toString().ifBlank { app.packageName }
+                    label to app.packageName
+                }
+                .toList()
+
+            val apps = (launchable + installed)
                 .distinctBy { it.second }
                 .sortedBy { it.first.lowercase() }
+
             runOnUiThread {
                 allLaunchableApps = apps
-                filterGamerApps("")
+                filterGamerApps(gamerSearchInput.text?.toString().orEmpty())
             }
         }
     }
 
     private fun filterGamerApps(query: String) {
         val normalized = query.trim().lowercase()
-        filteredLaunchableApps = if (normalized.isBlank()) {
+        val base = if (normalized.isBlank()) {
             allLaunchableApps
         } else {
             allLaunchableApps.filter { (label, pkg) ->
                 label.lowercase().contains(normalized) || pkg.lowercase().contains(normalized)
             }
         }
+        filteredLaunchableApps = base.sortedWith(
+            compareByDescending<Pair<String, String>> { selectedGamerPackages.contains(it.second) }
+                .thenBy { it.first.lowercase() }
+        )
         val rows = filteredLaunchableApps.map { (label, pkg) ->
-            val picked = if (pkg == selectedGamerPackage) " ✅" else ""
+            val picked = if (selectedGamerPackages.contains(pkg)) " ✅" else ""
             "$label ($pkg)$picked"
         }
         gamerAppsAdapter.clear()
@@ -540,7 +575,7 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, activeProtocol)
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
                 .putExtra(LocalVpnService.EXTRA_PERFORMANCE_PROFILE, activeProfile)
-                .putExtra(LocalVpnService.EXTRA_GAMER_PACKAGE, AppSettings.getGamerTargetPackage(this))
+                .putStringArrayListExtra(LocalVpnService.EXTRA_GAMER_PACKAGES, ArrayList(AppSettings.getGamerTargetPackages(this)))
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)
@@ -582,10 +617,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showShareNetInfoDialog() {
-        val ip = getLocalIpv4Address().ifBlank { "192.168.43.1" }
+        val addresses = getLocalIpv4Addresses()
+        val primaryIp = addresses.firstOrNull()?.first ?: "192.168.43.1"
+        val candidates = if (addresses.isEmpty()) {
+            "• 192.168.43.1 (fallback)"
+        } else {
+            addresses.joinToString("\n") { (ip, iface) -> "• $ip ($iface)" }
+        }
+        val message = getString(R.string.share_proxy_text, primaryIp, BlackTunnelClient.LOCAL_PORT) +
+            "\n\nIPs detectadas en este teléfono:\n$candidates"
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.share_proxy_title))
-            .setMessage(getString(R.string.share_proxy_text, ip, BlackTunnelClient.LOCAL_PORT))
+            .setMessage(message)
             .setPositiveButton(android.R.string.ok, null)
             .setOnDismissListener {
                 // se mantiene activado hasta que el usuario pulse otra vez el botón
@@ -627,9 +670,10 @@ class MainActivity : ComponentActivity() {
             if (info.premium) " | PREMIUM" else ""
     }
 
-    private fun getLocalIpv4Address(): String {
+    private fun getLocalIpv4Addresses(): List<Pair<String, String>> {
         return runCatching {
-            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return@runCatching ""
+            val result = mutableListOf<Pair<String, String>>()
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return@runCatching emptyList()
             while (interfaces.hasMoreElements()) {
                 val iface = interfaces.nextElement()
                 if (!iface.isUp || iface.isLoopback) continue
@@ -637,12 +681,25 @@ class MainActivity : ComponentActivity() {
                 while (addrs.hasMoreElements()) {
                     val addr = addrs.nextElement()
                     if (addr is Inet4Address && !addr.isLoopbackAddress) {
-                        return@runCatching addr.hostAddress.orEmpty()
+                        val ip = addr.hostAddress.orEmpty().substringBefore('%')
+                        if (ip.isNotBlank()) result.add(ip to iface.name)
                     }
                 }
             }
-            ""
-        }.getOrDefault("")
+            result
+                .distinctBy { it.first }
+                .sortedWith(compareBy<Pair<String, String>> { interfacePriority(it.second) }.thenBy { InetAddress.getByName(it.first).address.last().toInt() })
+        }.getOrDefault(emptyList())
+    }
+
+    private fun interfacePriority(name: String): Int {
+        val lower = name.lowercase()
+        return when {
+            lower.startsWith("ap") || lower.contains("hotspot") -> 0
+            lower.startsWith("wlan") || lower.startsWith("swlan") || lower.contains("wifi") -> 1
+            lower.startsWith("rndis") || lower.contains("usb") -> 2
+            else -> 3
+        }
     }
 
     companion object {

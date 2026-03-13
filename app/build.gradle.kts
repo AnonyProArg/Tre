@@ -19,12 +19,23 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
+
+        resourceConfigurations += listOf("es", "en")
+    }
+
+    buildFeatures {
+        buildConfig = false
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            isDebuggable = false
+            isJniDebuggable = false
+            ndk {
+                debugSymbolLevel = "NONE"
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -33,6 +44,15 @@ android {
     }
 
     packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/*.kotlin_module",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1"
+            )
+        }
         jniLibs {
             useLegacyPackaging = true
         }

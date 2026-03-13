@@ -49,6 +49,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var customStreamsInput: EditText
     private lateinit var gamerSection: LinearLayout
     private lateinit var gamerSearchInput: EditText
+    private var pendingVpnPermission = false
+        savedInstanceState?.let {
+            lastAuthOk = it.getBoolean(STATE_LAST_AUTH_OK, false)
+            lastAuthDomain = it.getString(STATE_LAST_AUTH_DOMAIN).orEmpty()
+            pendingVpnPermission = it.getBoolean(STATE_PENDING_VPN_PERMISSION, false)
+        }
     private lateinit var gamerAppsList: ListView
     private lateinit var gamerManualPackageInput: EditText
     private lateinit var gamerAddPackageButton: Button
@@ -589,10 +595,27 @@ class MainActivity : ComponentActivity() {
         if (isExpiredLocally()) {
             Toast.makeText(this, getString(R.string.local_expired), Toast.LENGTH_LONG).show()
             stopVpnNow()
-            return
-        }
+        pendingVpnPermission = true
+            val activeProfile = AppSettings.getPerformanceProfile(this)
+                if (activeProfile == "custom_proxy" && pendingVpnPermission) {
+                    lastAuthOk = true
+                    lastAuthDomain = AppSettings.getTunnelDomain(this)
+                } else {
+                    Toast.makeText(this, getString(R.string.need_auth), Toast.LENGTH_LONG).show()
+                    updateUiState(verified = false, connected = false, status = getString(R.string.status_not_validated))
+                    pendingVpnPermission = false
+                    return
+                }
+            pendingVpnPermission = false
 
-        updateUiState(verified = false, connected = false, status = getString(R.string.status_validating))
+            pendingVpnPermission = false
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_LAST_AUTH_OK, lastAuthOk)
+        outState.putString(STATE_LAST_AUTH_DOMAIN, lastAuthDomain)
+        outState.putBoolean(STATE_PENDING_VPN_PERMISSION, pendingVpnPermission)
+    }
 
         thread(name = "auth-thread") {
             try {
@@ -758,6 +781,9 @@ class MainActivity : ComponentActivity() {
         } else {
             addresses.joinToString("\n") { (ip, iface) -> "• $ip ($iface)" }
         }
+        private const val STATE_LAST_AUTH_OK = "state_last_auth_ok"
+        private const val STATE_LAST_AUTH_DOMAIN = "state_last_auth_domain"
+        private const val STATE_PENDING_VPN_PERMISSION = "state_pending_vpn_permission"
         val message = getString(R.string.share_proxy_text, primaryIp, BlackTunnelClient.LOCAL_PORT) +
             "\n\nIPs detectadas en este teléfono:\n$candidates"
         AlertDialog.Builder(this)

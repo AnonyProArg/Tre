@@ -8,16 +8,20 @@ object AppSettings {
     private const val KEY_TUN_STACK = "tun_stack"
     private const val KEY_SMUX_MAX_STREAMS = "smux_max_streams"
     private const val KEY_H2MUX_MAX_STREAMS = "h2mux_max_streams"
+    private const val KEY_CUSTOM_MUX_MAX_STREAMS = "custom_mux_max_streams"
     private const val KEY_MUX_PROTOCOL = "mux_protocol"
+    private const val KEY_PERFORMANCE_PROFILE = "performance_profile"
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
     private const val KEY_SERVER_LIST = "server_list"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
-    private const val DEFAULT_SMUX_MAX_STREAMS = 1000
+    private const val DEFAULT_SMUX_MAX_STREAMS = 5000
     private const val DEFAULT_H2MUX_MAX_STREAMS = 1000
+    private const val DEFAULT_CUSTOM_MUX_MAX_STREAMS = 5000
     private const val DEFAULT_MUX_PROTOCOL = "smux"
+    private const val DEFAULT_PERFORMANCE_PROFILE = "normal"
 
     fun getTunnelDomain(context: Context): String {
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -60,26 +64,39 @@ object AppSettings {
     fun getSmuxMaxStreams(context: Context): Int {
         val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_SMUX_MAX_STREAMS, DEFAULT_SMUX_MAX_STREAMS)
-        return value.coerceIn(700, 5000)
+        return value.coerceIn(700, 20000)
     }
 
     fun setSmuxMaxStreams(context: Context, value: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putInt(KEY_SMUX_MAX_STREAMS, value.coerceIn(700, 5000))
+            .putInt(KEY_SMUX_MAX_STREAMS, value.coerceIn(700, 20000))
             .apply()
     }
 
     fun getH2MuxMaxStreams(context: Context): Int {
         val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_H2MUX_MAX_STREAMS, DEFAULT_H2MUX_MAX_STREAMS)
-        return value.coerceIn(700, 5000)
+        return value.coerceIn(700, 20000)
     }
 
     fun setH2MuxMaxStreams(context: Context, value: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putInt(KEY_H2MUX_MAX_STREAMS, value.coerceIn(700, 5000))
+            .putInt(KEY_H2MUX_MAX_STREAMS, value.coerceIn(700, 20000))
+            .apply()
+    }
+
+    fun getCustomMuxMaxStreams(context: Context): Int {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_CUSTOM_MUX_MAX_STREAMS, DEFAULT_CUSTOM_MUX_MAX_STREAMS)
+        return value.coerceIn(1, 20000)
+    }
+
+    fun setCustomMuxMaxStreams(context: Context, value: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_CUSTOM_MUX_MAX_STREAMS, value.coerceIn(1, 20000))
             .apply()
     }
 
@@ -106,16 +123,35 @@ object AppSettings {
             .apply()
     }
 
+    fun getPerformanceProfile(context: Context): String {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_PERFORMANCE_PROFILE, DEFAULT_PERFORMANCE_PROFILE)
+            ?.trim()
+            ?.lowercase()
+            .orEmpty()
+        return when (value) {
+            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> value
+            else -> DEFAULT_PERFORMANCE_PROFILE
+        }
+    }
+
+    fun setPerformanceProfile(context: Context, profile: String) {
+        val normalized = when (profile.trim().lowercase()) {
+            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> profile.trim().lowercase()
+            else -> DEFAULT_PERFORMANCE_PROFILE
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PERFORMANCE_PROFILE, normalized)
+            .apply()
+    }
+
     fun getMuxMaxStreams(context: Context, protocol: String): Int {
         return if (protocol.lowercase() == "h2mux") getH2MuxMaxStreams(context) else getSmuxMaxStreams(context)
     }
 
     fun setMuxMaxStreams(context: Context, protocol: String, value: Int) {
-        if (protocol.lowercase() == "h2mux") {
-            setH2MuxMaxStreams(context, value)
-        } else {
-            setSmuxMaxStreams(context, value)
-        }
+        if (protocol.lowercase() == "h2mux") setH2MuxMaxStreams(context, value) else setSmuxMaxStreams(context, value)
     }
 
     fun isVpnActive(context: Context): Boolean {

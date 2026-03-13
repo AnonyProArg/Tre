@@ -4,6 +4,7 @@
     <string name="stop_vpn">Desconectar</string>
     <string name="copy_id">Copiar ID</string>
     <string name="smux_hint">Streams</string>
+    <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>
@@ -22,13 +23,15 @@
     <string name="vpn_permission_denied">Permiso de VPN denegado</string>
     <string name="need_auth">Debes autenticar antes de conectar</string>
     <string name="info_title">Info</string>
-    <string name="info_text">• TUN Stack: ahora gVisor es el predeterminado. Si notas lentitud, prueba System. Mixed es un punto intermedio.
+    <string name="info_text">• Perfiles disponibles:
+  - Gama baja: prioriza compatibilidad en equipos limitados.
+  - Ahorro batería: reduce consumo con buena estabilidad general.
+  - Normal (default): smux + 5000 para mantener túneles y notificaciones activas.
+  - Ultra: configuración agresiva para máxima estabilidad simultánea.
+  - Gamer: prioriza baja latencia y recursos altos para juegos.
+  - Personalizado: permite editar streams manualmente (1-20000).
 
-• Los cambios de TUN/MUX se aplican al desconectar y volver a conectar.
-
-• MUX configurable (smux/h2mux) con los mismos perfiles: 700, 1000, 2000, 3000, 5000.
-
-• Default recomendado: smux + 1000.
+• Los cambios de perfil/TUN/MUX se aplican al desconectar y volver a conectar.
 
 • Subir streams mejora estabilidad simultánea y mantiene mejor conexiones activas (WhatsApp/Telegram/Chrome), pero puede aumentar consumo de batería.
 

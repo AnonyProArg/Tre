@@ -13,12 +13,14 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.widget.doAfterTextChanged
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.time.LocalDate
@@ -35,8 +37,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var serverSpinner: Spinner
     private lateinit var serverStateLabel: TextView
     private lateinit var tunStackSpinner: Spinner
+    private lateinit var profileSpinner: Spinner
     private lateinit var muxProtocolSpinner: Spinner
     private lateinit var muxStreamsSpinner: Spinner
+    private lateinit var customStreamsInput: EditText
     private lateinit var toggleVpnButton: Button
     private lateinit var batteryButton: Button
     private lateinit var shareNetButton: Button
@@ -65,8 +69,10 @@ class MainActivity : ComponentActivity() {
         serverSpinner = findViewById(R.id.serverSpinner)
         serverStateLabel = findViewById(R.id.serverStateLabel)
         tunStackSpinner = findViewById(R.id.tunStackSpinner)
+        profileSpinner = findViewById(R.id.profileSpinner)
         muxProtocolSpinner = findViewById(R.id.muxProtocolSpinner)
         muxStreamsSpinner = findViewById(R.id.muxStreamsSpinner)
+        customStreamsInput = findViewById(R.id.customStreamsInput)
         toggleVpnButton = findViewById(R.id.startVpnButton)
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
@@ -75,6 +81,12 @@ class MainActivity : ComponentActivity() {
         val stackAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, stackValues)
         stackAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         tunStackSpinner.adapter = stackAdapter
+
+        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom")
+        val profileLabels = listOf("Gama baja", "Ahorro batería", "Normal", "Ultra", "Gamer", "Personalizado")
+        val profileAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, profileLabels)
+        profileAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
+        profileSpinner.adapter = profileAdapter
 
         val muxValues = listOf("smux", "h2mux")
         val muxAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, muxValues)
@@ -86,9 +98,13 @@ class MainActivity : ComponentActivity() {
 
         val savedStack = AppSettings.getTunStack(this)
         tunStackSpinner.setSelection(stackValues.indexOf(savedStack).coerceAtLeast(0))
+        val savedProfile = AppSettings.getPerformanceProfile(this)
+        profileSpinner.setSelection(profileValues.indexOf(savedProfile).coerceAtLeast(0))
         val savedMux = AppSettings.getMuxProtocol(this)
         muxProtocolSpinner.setSelection(muxValues.indexOf(savedMux).coerceAtLeast(0))
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
+        customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
+        renderProfileUi(savedProfile)
 
         accountLabel.text = AppSettings.getAccountSummary(this).ifBlank { getString(R.string.account_unknown) }
         loadServersFromStorage()
@@ -102,6 +118,17 @@ class MainActivity : ComponentActivity() {
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
         }
+        profileSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                val profile = profileValues.getOrElse(position) { "normal" }
+                applyProfilePreset(profile, muxValues)
+                renderProfileUi(profile)
+                saveConfigFromInputs(showToast = false)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
         muxProtocolSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
                 val protocol = muxProtocolSpinner.selectedItem?.toString().orEmpty()
@@ -118,6 +145,10 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
+        customStreamsInput.doAfterTextChanged {
+            saveConfigFromInputs(showToast = false)
         }
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
@@ -165,23 +196,73 @@ class MainActivity : ComponentActivity() {
 
     private fun saveConfigFromInputs(showToast: Boolean): Boolean {
         val stack = tunStackSpinner.selectedItem?.toString().orEmpty()
+        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom")
+        val selectedProfile = profileValues.getOrElse(profileSpinner.selectedItemPosition.coerceAtLeast(0)) { "normal" }
         val muxProtocol = muxProtocolSpinner.selectedItem?.toString().orEmpty()
-        val muxStreams = muxStreamsSpinner.selectedItem?.toString()?.toIntOrNull()
 
-        if (muxStreams == null) {
+        val muxStreams = if (selectedProfile == "custom") {
+            customStreamsInput.text.toString().toIntOrNull()
+        } else {
+            muxStreamsSpinner.selectedItem?.toString()?.toIntOrNull()
+        }
+
+        if (muxStreams == null || muxStreams <= 0) {
             if (showToast) Toast.makeText(this, "MUX inválido", Toast.LENGTH_SHORT).show()
             return false
         }
 
         AppSettings.setTunStack(this, stack)
+        AppSettings.setPerformanceProfile(this, selectedProfile)
         AppSettings.setMuxProtocol(this, muxProtocol)
+        if (selectedProfile == "custom") {
+            AppSettings.setCustomMuxMaxStreams(this, muxStreams)
+        }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
 
+    private fun applyProfilePreset(profile: String, muxValues: List<String>) {
+        when (profile) {
+            "low_end" -> {
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
+                muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
+                bindMuxStreamsOptions("h2mux", 700)
+            }
+            "battery" -> {
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
+                bindMuxStreamsOptions("h2mux", 1000)
+            }
+            "normal" -> {
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("gvisor"))
+                muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
+                bindMuxStreamsOptions("smux", 5000)
+            }
+            "ultra" -> {
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
+                bindMuxStreamsOptions("smux", 12000)
+            }
+            "gamer" -> {
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
+                muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
+                bindMuxStreamsOptions("smux", 15000)
+            }
+            else -> {
+                // custom: mantiene selección actual
+            }
+        }
+    }
+
+    private fun renderProfileUi(profile: String) {
+        val isCustom = profile == "custom"
+        muxStreamsSpinner.visibility = if (isCustom) android.view.View.GONE else android.view.View.VISIBLE
+        customStreamsInput.visibility = if (isCustom) android.view.View.VISIBLE else android.view.View.GONE
+    }
+
     private fun bindMuxStreamsOptions(protocol: String, preferred: Int) {
-        val options = listOf(700, 1000, 2000, 3000, 5000)
+        val options = listOf(700, 1000, 2000, 3000, 5000, 12000, 15000, 20000)
         val adapter = ArrayAdapter(this, R.layout.spinner_item_selected, options.map { it.toString() })
         adapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         muxStreamsSpinner.adapter = adapter
@@ -376,16 +457,21 @@ class MainActivity : ComponentActivity() {
                 return
             }
 
+            val activeProfile = AppSettings.getPerformanceProfile(this)
+            val activeProtocol = AppSettings.getMuxProtocol(this)
+            val activeStreams = if (activeProfile == "custom") {
+                AppSettings.getCustomMuxMaxStreams(this)
+            } else {
+                AppSettings.getMuxMaxStreams(this, activeProtocol)
+            }
+
             val serviceIntent = Intent(this, LocalVpnService::class.java)
                 .setAction(LocalVpnService.ACTION_START)
                 .putExtra(LocalVpnService.EXTRA_HWID, hwid)
                 .putExtra(LocalVpnService.EXTRA_TUNNEL_DOMAIN, lastAuthDomain)
                 .putExtra(LocalVpnService.EXTRA_TUN_STACK, AppSettings.getTunStack(this))
-                .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, AppSettings.getMuxProtocol(this))
-                .putExtra(
-                    LocalVpnService.EXTRA_SMUX_MAX_STREAMS,
-                    AppSettings.getMuxMaxStreams(this, AppSettings.getMuxProtocol(this))
-                )
+                .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, activeProtocol)
+                .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

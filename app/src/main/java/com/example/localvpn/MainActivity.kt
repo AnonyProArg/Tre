@@ -205,7 +205,11 @@ class MainActivity : ComponentActivity() {
             val now = System.currentTimeMillis()
             if (now - lastToggleAtMs < 1200L) return@setOnClickListener
             lastToggleAtMs = now
-            if (isVpnConnected) stopVpnNow() else authenticateThenStart()
+            if (isVpnConnected) {
+                stopVpnNow()
+            } else {
+                showTunCompatibilityWarningThen { authenticateThenStart() }
+            }
         }
 
         batteryButton.setOnClickListener { openBatteryOptimizationSettings() }
@@ -271,7 +275,7 @@ class MainActivity : ComponentActivity() {
                 bindMuxStreamsOptions("h2mux", 700)
             }
             "battery" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
                 bindMuxStreamsOptions("h2mux", 1000)
             }
@@ -281,7 +285,7 @@ class MainActivity : ComponentActivity() {
                 bindMuxStreamsOptions("smux", 5000)
             }
             "ultra" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("gvisor"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 12000)
             }
@@ -536,6 +540,16 @@ class MainActivity : ComponentActivity() {
         toggleVpnButton.text = if (connected) getString(R.string.stop_vpn) else getString(R.string.start_vpn)
         val prefix = if (verified) "🟢" else "⚪"
         statusLabel.text = "$prefix $status"
+    }
+
+    private fun showTunCompatibilityWarningThen(onContinue: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.tun_warning_title))
+            .setMessage(getString(R.string.tun_warning_message))
+            .setCancelable(true)
+            .setPositiveButton(getString(R.string.tun_warning_continue)) { _, _ -> onContinue() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun requestVpnPermissionAndStart() {

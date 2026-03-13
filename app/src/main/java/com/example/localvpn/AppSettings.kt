@@ -21,6 +21,7 @@ object AppSettings {
     private const val KEY_CUSTOM_PROXY_PORT = "custom_proxy_port"
     private const val KEY_CUSTOM_PAYLOAD1 = "custom_payload1"
     private const val KEY_CUSTOM_PAYLOAD2 = "custom_payload2"
+    private const val KEY_SKIP_TUN_WARNING = "skip_tun_warning"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 5000
@@ -284,6 +285,18 @@ object AppSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_CUSTOM_PAYLOAD2, payload)
+            .apply()
+    }
+
+    fun shouldSkipTunWarning(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SKIP_TUN_WARNING, false)
+    }
+
+    fun setSkipTunWarning(context: Context, skip: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SKIP_TUN_WARNING, skip)
             .apply()
     }
 

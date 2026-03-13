@@ -196,6 +196,36 @@
                 android:textColor="#E5E7EB"
                 android:textColorHint="#6B7280" />
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/gamerManualPackageInput"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/button_ghost"
+                    android:hint="@string/gamer_manual_package_hint"
+                    android:paddingHorizontal="10dp"
+                    android:singleLine="true"
+                    android:textColor="#E5E7EB"
+                    android:textColorHint="#6B7280" />
+
+                <Button
+                    android:id="@+id/gamerAddPackageButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/button_ghost"
+                    android:minHeight="44dp"
+                    android:text="@string/gamer_add_package"
+                    android:textAllCaps="false"
+                    android:textColor="#E5E7EB" />
+            </LinearLayout>
+
             <ListView
                 android:id="@+id/gamerAppsList"
                 android:layout_width="match_parent"

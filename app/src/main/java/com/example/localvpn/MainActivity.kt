@@ -20,6 +20,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.CheckBox
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
@@ -49,6 +50,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var gamerSection: LinearLayout
     private lateinit var gamerSearchInput: EditText
     private lateinit var gamerAppsList: ListView
+    private lateinit var gamerManualPackageInput: EditText
+    private lateinit var gamerAddPackageButton: Button
     private lateinit var customProxySection: LinearLayout
     private lateinit var customProxyHostInput: EditText
     private lateinit var customProxyPortInput: EditText
@@ -94,6 +97,8 @@ class MainActivity : ComponentActivity() {
         gamerSection = findViewById(R.id.gamerSection)
         gamerSearchInput = findViewById(R.id.gamerSearchInput)
         gamerAppsList = findViewById(R.id.gamerAppsList)
+        gamerManualPackageInput = findViewById(R.id.gamerManualPackageInput)
+        gamerAddPackageButton = findViewById(R.id.gamerAddPackageButton)
         customProxySection = findViewById(R.id.customProxySection)
         customProxyHostInput = findViewById(R.id.customProxyHostInput)
         customProxyPortInput = findViewById(R.id.customProxyPortInput)
@@ -194,6 +199,9 @@ class MainActivity : ComponentActivity() {
         customPayload2Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
         gamerSearchInput.doAfterTextChanged {
             filterGamerApps(it?.toString().orEmpty())
+        }
+        gamerAddPackageButton.setOnClickListener {
+            addManualGamerPackage()
         }
         gamerAppsList.setOnItemClickListener { _, _, position, _ ->
             val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
@@ -385,7 +393,11 @@ class MainActivity : ComponentActivity() {
                 }
                 .toList()
 
-            val apps = (launchable + installed)
+            val storedManual = selectedGamerPackages
+                .filter { pkg -> installed.none { it.second == pkg } && launchable.none { it.second == pkg } }
+                .map { it to it }
+
+            val apps = (launchable + installed + storedManual)
                 .distinctBy { it.second }
                 .sortedBy { it.first.lowercase() }
 
@@ -416,6 +428,35 @@ class MainActivity : ComponentActivity() {
         gamerAppsAdapter.clear()
         gamerAppsAdapter.addAll(rows)
         gamerAppsAdapter.notifyDataSetChanged()
+    }
+
+    private fun addManualGamerPackage() {
+        val raw = gamerManualPackageInput.text?.toString().orEmpty().trim().lowercase()
+        if (!isValidPackageName(raw)) {
+            Toast.makeText(this, getString(R.string.gamer_invalid_package), Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (!selectedGamerPackages.add(raw)) {
+            Toast.makeText(this, getString(R.string.gamer_manual_already_added), Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (allLaunchableApps.none { it.second == raw }) {
+            allLaunchableApps = (allLaunchableApps + listOf(raw to raw)).sortedBy { it.first.lowercase() }
+        }
+
+        gamerManualPackageInput.setText("")
+        AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
+        filterGamerApps(gamerSearchInput.text?.toString().orEmpty())
+        saveConfigFromInputs(showToast = false)
+        Toast.makeText(this, getString(R.string.gamer_manual_added, raw), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun isValidPackageName(value: String): Boolean {
+        if (value.length < 3 || value.length > 255) return false
+        if (!value.contains('.')) return false
+        return Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$").matches(value)
     }
 
     private fun bindMuxStreamsOptions(protocol: String, preferred: Int) {
@@ -604,11 +645,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showTunCompatibilityWarningThen(onContinue: () -> Unit) {
+        if (AppSettings.shouldSkipTunWarning(this)) {
+            onContinue()
+            return
+        }
+
+        val dontShowAgain = CheckBox(this).apply {
+            text = getString(R.string.tun_warning_do_not_show)
+            setPadding(32, 0, 0, 0)
+        }
+
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.tun_warning_title))
             .setMessage(getString(R.string.tun_warning_message))
+            .setView(dontShowAgain)
             .setCancelable(true)
-            .setPositiveButton(getString(R.string.tun_warning_continue)) { _, _ -> onContinue() }
+            .setPositiveButton(getString(R.string.tun_warning_continue)) { _, _ ->
+                if (dontShowAgain.isChecked) AppSettings.setSkipTunWarning(this, true)
+                onContinue()
+            }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }

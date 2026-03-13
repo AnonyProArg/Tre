@@ -10,6 +10,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.Collections
+import java.util.LinkedHashSet
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -243,7 +244,6 @@ object BlackTunnelClient {
         protectSocket: ((Socket) -> Unit)?,
         logger: ((String) -> Unit)?
     ): Pair<Socket?, Map<String, String>> {
-        val p1 = ("GET / HTTP/1.1\r\nHost: $PROXY_HOST\r\n\r\n").toByteArray()
         val p2 = (
             "- / HTTP/1.1\r\n" +
                 "Host: $tunnelDomain\r\n" +
@@ -252,20 +252,43 @@ object BlackTunnelClient {
                 "Auth: $hwid\r\n\r\n"
             ).toByteArray()
 
+        // Método principal: IPv6 estática con payload principal/secundario.
         repeat(CHANNEL_CONNECT_RETRIES) { attempt ->
-            connectAndSend(InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT), p1, p2, protectSocket, logger)
-                .let { if (it.first != null) return it }
-
-            val ipv6ByDns = runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }.getOrDefault(emptyList())
-            ipv6ByDns.forEach { ip6 ->
-                connectAndSend(InetSocketAddress(ip6, PROXY_PORT), p1, p2, protectSocket, logger)
-                    .let { if (it.first != null) return it }
+            buildPayloadVariants().forEach { payload ->
+                connectAndSend(
+                    address = InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT),
+                    p1 = payload,
+                    p2 = p2,
+                    protectSocket = protectSocket,
+                    logger = logger
+                ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, logger) }
             }
 
-            val ipv4Direct = runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet4Address>() }.getOrDefault(emptyList())
+            // Método secundario: IPv6 dinámicas por feedback (cache) + DNS del host señuelo/túnel.
+            resolveDynamicIpv6Candidates(tunnelDomain).forEach { ip6 ->
+                buildPayloadVariants().forEach { payload ->
+                    connectAndSend(
+                        address = InetSocketAddress(ip6, PROXY_PORT),
+                        p1 = payload,
+                        p2 = p2,
+                        protectSocket = protectSocket,
+                        logger = logger
+                    ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, logger) }
+                }
+            }
+
+            // Tercer intento: IPv4 directo al dominio del túnel (sin payload señuelo p1).
+            val ipv4Direct = runCatching {
+                InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet4Address>()
+            }.getOrDefault(emptyList())
             ipv4Direct.forEach { ip4 ->
-                connectAndSend(InetSocketAddress(ip4, PROXY_PORT), null, p2, protectSocket, logger)
-                    .let { if (it.first != null) return it }
+                connectAndSend(
+                    address = InetSocketAddress(ip4, PROXY_PORT),
+                    p1 = null,
+                    p2 = p2,
+                    protectSocket = protectSocket,
+                    logger = logger
+                ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, logger) }
             }
 
             if (attempt < CHANNEL_CONNECT_RETRIES - 1) {
@@ -349,9 +372,56 @@ object BlackTunnelClient {
         return headers to parts.size
     }
 
+    private fun buildPayloadVariants(): List<ByteArray?> {
+        val primary = ("GET / HTTP/1.1\r\nHost: $PROXY_HOST\r\n\r\n").toByteArray()
+        val secondary = ("HEAD / HTTP/1.1\r\nHost: $PROXY_HOST\r\nConnection: keep-alive\r\n\r\n").toByteArray()
+        return listOf(primary, secondary)
+    }
+
+    private fun resolveDynamicIpv6Candidates(tunnelDomain: String): List<Inet6Address> {
+        val ordered = LinkedHashSet<String>()
+        synchronized(ipv6FeedbackLock) {
+            if (lastGoodIpv6Literal.isNotBlank() && (lastGoodDomainHint.isBlank() || lastGoodDomainHint == tunnelDomain)) {
+                ordered += lastGoodIpv6Literal
+            }
+        }
+
+        runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }
+            .getOrDefault(emptyList())
+            .forEach { ordered += it.hostAddress.orEmpty() }
+
+        runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet6Address>() }
+            .getOrDefault(emptyList())
+            .forEach { ordered += it.hostAddress.orEmpty() }
+
+        return ordered.mapNotNull { literal ->
+            runCatching { Inet6Address.getByName(literal) as? Inet6Address }.getOrNull()
+        }
+    }
+
+    private fun rememberSuccessfulEndpoint(
+        result: Pair<Socket?, Map<String, String>>,
+        tunnelDomain: String,
+        logger: ((String) -> Unit)?
+    ): Pair<Socket?, Map<String, String>> {
+        val socket = result.first ?: return result
+        val remote = socket.inetAddress
+        if (remote is Inet6Address) {
+            synchronized(ipv6FeedbackLock) {
+                lastGoodIpv6Literal = remote.hostAddress.orEmpty()
+                lastGoodDomainHint = tunnelDomain
+            }
+            logger?.invoke("Canal OK via IPv6 dinámica: ${remote.hostAddress}")
+        }
+        return result
+    }
+
     private fun closeQuietly(socket: Socket?) {
         runCatching { socket?.close() }
     }
 
     private const val CHANNEL_CONNECT_RETRIES = 3
+    private val ipv6FeedbackLock = Any()
+    private var lastGoodIpv6Literal: String = ""
+    private var lastGoodDomainHint: String = ""
 }

@@ -28,9 +28,6 @@ class MainActivity : ComponentActivity() {
     private var lastAuthOk = false
     private var lastAuthDomain = ""
 
-    private val logListener: (String) -> Unit = { line ->
-        runOnUiThread { appendLogLine(line) }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +43,7 @@ class MainActivity : ComponentActivity() {
         val stackValues = listOf("system", "gvisor", "mixed")
         tunStackSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, stackValues)
 
-        hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir) { VpnLogStore.add(it) }
+        hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
         hwidLabel.text = "HWID: $hwid"
         tunnelDomainInput.setText(AppSettings.getTunnelDomain(this))
         val savedStack = AppSettings.getTunStack(this)
@@ -81,26 +78,15 @@ class MainActivity : ComponentActivity() {
 
         findViewById<Button>(R.id.stopVpnButton).setOnClickListener {
             startService(Intent(this, LocalVpnService::class.java).setAction(LocalVpnService.ACTION_STOP))
+            stopService(Intent(this, LocalVpnService::class.java))
+            lastAuthOk = false
+            lastAuthDomain = ""
             Toast.makeText(this, "VPN detenida", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.clearLogsButton).setOnClickListener {
-            VpnLogStore.clear()
             logsTextView.text = ""
         }
-
-        renderLogSnapshot()
-    }
-
-    override fun onStart() {
-        super.onStart()
-        VpnLogStore.addListener(logListener)
-        renderLogSnapshot()
-    }
-
-    override fun onStop() {
-        VpnLogStore.removeListener(logListener)
-        super.onStop()
     }
 
     private fun authenticateThenStart() {
@@ -124,7 +110,7 @@ class MainActivity : ComponentActivity() {
 
         thread(name = "auth-thread") {
             try {
-                val info = BlackTunnelClient.auth(hwid, tunnelDomain) { VpnLogStore.add(it) }
+                val info = BlackTunnelClient.auth(hwid, tunnelDomain)
                 runOnUiThread {
                     accountLabel.text = "Cuenta: ${info.name} | días: ${info.days} | expira: ${info.expire}" +
                         if (info.premium) " | PREMIUM" else ""
@@ -174,15 +160,6 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Permiso de VPN denegado", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun renderLogSnapshot() {
-        logsTextView.text = VpnLogStore.snapshot().joinToString("\n")
-    }
-
-    private fun appendLogLine(line: String) {
-        if (logsTextView.text.isNullOrEmpty()) logsTextView.text = line
-        else logsTextView.append("\n$line")
     }
 
     companion object {

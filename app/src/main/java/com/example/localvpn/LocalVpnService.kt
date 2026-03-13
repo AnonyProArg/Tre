@@ -35,12 +35,14 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var isStopping = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        lastStartIntent = intent
         when (intent?.action) {
             ACTION_STOP -> stopVpn()
-            else -> startVpn(intent)
+            else -> {
+                lastStartIntent = intent
+                startVpn(intent)
+            }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startVpn(intent: Intent?) {
@@ -68,7 +70,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 hwid = hwid,
                 tunnelDomain = tunnelDomain,
                 protectSocket = { socket -> protect(socket) },
-                logger = ::emitLog
+                logger = {}
             )
 
             setupLibboxOnce()
@@ -92,7 +94,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val fromIntent = lastStartIntent?.getStringExtra(EXTRA_HWID)?.trim().orEmpty()
         if (fromIntent.isNotBlank()) return fromIntent
         emitLog("WARN EXTRA_HWID ausente, usando HWID local")
-        return BlackTunnelClient.getOrCreateHwid(noBackupFilesDir, ::emitLog)
+        return BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
     }
 
     private fun intentDomainOrSettings(): String {
@@ -202,7 +204,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val hwid = lastStartIntent?.getStringExtra(EXTRA_HWID)?.trim().orEmpty()
             val domain = lastStartIntent?.getStringExtra(EXTRA_TUNNEL_DOMAIN)?.trim().orEmpty()
             if (hwid.isNotBlank() && domain.isNotBlank()) {
-                BlackTunnelClient.notifyDisconnect(hwid, domain, ::emitLog)
+                BlackTunnelClient.notifyDisconnect(hwid, domain)
             }
             proxyHandle?.stop()
         } catch (e: Exception) {
@@ -324,12 +326,9 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun setSystemProxyEnabled(enabled: Boolean) {}
 
-    override fun writeDebugMessage(message: String) {
-        emitLog("libbox: $message")
-    }
+    override fun writeDebugMessage(message: String) {}
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        emitLog("App removida de recientes, servicio continúa en foreground")
         super.onTaskRemoved(rootIntent)
     }
 
@@ -372,7 +371,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, smuxMaxStreams: Int): String {
         return """
             {
-              "log": { "level": "info", "timestamp": true },
+              "log": { "level": "error", "timestamp": false },
               "inbounds": [
                 {
                   "type": "tun",

@@ -24,7 +24,7 @@ object BlackTunnelClient {
     private const val PROXY_PORT = 80
     private const val CENTRAL_HOST = "central.brawlpass.com.ar"
 
-    const val LOCAL_HOST = "0.0.0.0"
+    const val LOCAL_HOST = "127.0.0.1"
     const val LOCAL_PORT = 10809
 
     data class AccountInfo(
@@ -219,18 +219,19 @@ object BlackTunnelClient {
         hwid: String,
         tunnelDomain: String,
         protectSocket: (Socket) -> Unit,
-        logger: (String) -> Unit
+        logger: (String) -> Unit,
+        bindHost: String = LOCAL_HOST
     ): ProxyHandle {
         resetTrafficCounters()
         val stopFlag = AtomicBoolean(false)
         val activeSockets = Collections.synchronizedSet(mutableSetOf<Socket>())
         val server = ServerSocket().apply {
             reuseAddress = true
-            bind(InetSocketAddress(LOCAL_HOST, LOCAL_PORT))
+            bind(InetSocketAddress(bindHost, LOCAL_PORT))
             soTimeout = 1_000
         }
 
-        logger("Proxy local en $LOCAL_HOST:$LOCAL_PORT dominio=$tunnelDomain")
+        logger("Proxy local en $bindHost:$LOCAL_PORT dominio=$tunnelDomain")
 
         thread(name = "bt-proxy-accept", isDaemon = true) {
             while (!stopFlag.get()) {
@@ -290,18 +291,19 @@ object BlackTunnelClient {
     fun startProxyCustom(
         config: CustomProxyConfig,
         protectSocket: (Socket) -> Unit,
-        logger: (String) -> Unit
+        logger: (String) -> Unit,
+        bindHost: String = LOCAL_HOST
     ): ProxyHandle {
         resetTrafficCounters()
         val stopFlag = AtomicBoolean(false)
         val activeSockets = Collections.synchronizedSet(mutableSetOf<Socket>())
         val server = ServerSocket().apply {
             reuseAddress = true
-            bind(InetSocketAddress(LOCAL_HOST, LOCAL_PORT))
+            bind(InetSocketAddress(bindHost, LOCAL_PORT))
             soTimeout = 1_000
         }
 
-        logger("Proxy local custom en $LOCAL_HOST:$LOCAL_PORT remoto=${config.host}:${config.port}")
+        logger("Proxy local custom en $bindHost:$LOCAL_PORT remoto=${config.host}:${config.port}")
 
         thread(name = "bt-proxy-accept-custom", isDaemon = true) {
             while (!stopFlag.get()) {

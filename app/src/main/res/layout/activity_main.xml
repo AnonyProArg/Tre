@@ -131,9 +131,16 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1" />
 
+            <Spinner
+                android:id="@+id/muxProtocolSpinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+
             <EditText
                 android:id="@+id/smuxStreamsInput"
-                android:layout_width="120dp"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/button_ghost"

@@ -61,11 +61,13 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val hwid = intentHwidOrLocal()
             val tunnelDomain = intentDomainOrSettings()
             val tunStack = intentTunStackOrSettings()
+            val muxProtocol = intentMuxProtocolOrSettings()
             val smuxMaxStreams = intentSmuxOrSettings()
 
             emitLog("HWID sesión: $hwid")
             emitLog("Dominio túnel sesión: $tunnelDomain")
             emitLog("TUN stack sesión: $tunStack")
+            emitLog("MUX protocolo sesión: $muxProtocol")
             emitLog("SMUX max_streams sesión: $smuxMaxStreams")
 
             proxyHandle = BlackTunnelClient.startProxy(
@@ -80,7 +82,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             commandServer = CommandServer(this, this)
             val overrideOptions = OverrideOptions()
             disableClashIfPresent(overrideOptions)
-            commandServer?.startOrReloadService(buildClientConfigJson(tunnelDomain, tunStack, smuxMaxStreams), overrideOptions)
+            commandServer?.startOrReloadService(buildClientConfigJson(tunnelDomain, tunStack, muxProtocol, smuxMaxStreams), overrideOptions)
             attachInterfaceProtectorIfAvailable(commandServer)
             libboxServiceStarted = true
 
@@ -112,6 +114,13 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         if (fromIntent.isNotBlank()) return fromIntent
         emitLog("WARN EXTRA_TUN_STACK ausente, usando ajuste guardado")
         return AppSettings.getTunStack(this)
+    }
+
+    private fun intentMuxProtocolOrSettings(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_MUX_PROTOCOL)?.trim().orEmpty().lowercase()
+        if (fromIntent == "smux" || fromIntent == "h2mux") return fromIntent
+        emitLog("WARN EXTRA_MUX_PROTOCOL ausente, usando ajuste guardado")
+        return AppSettings.getMuxProtocol(this)
     }
 
     private fun intentSmuxOrSettings(): Int {
@@ -377,7 +386,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
-    private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, smuxMaxStreams: Int): String {
+    private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, muxProtocol: String, smuxMaxStreams: Int): String {
         return """
             {
               "log": { "level": "error", "timestamp": false },
@@ -403,7 +412,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                   "flow": "",
                   "multiplex": {
                     "enabled": true,
-                    "protocol": "smux",
+                    "protocol": "${muxProtocol}",
                     "max_streams": ${smuxMaxStreams}
                   },
                   "packet_encoding": "xudp",
@@ -446,6 +455,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val EXTRA_HWID = "extra_hwid"
         const val EXTRA_TUNNEL_DOMAIN = "extra_tunnel_domain"
         const val EXTRA_TUN_STACK = "extra_tun_stack"
+        const val EXTRA_MUX_PROTOCOL = "extra_mux_protocol"
         const val EXTRA_SMUX_MAX_STREAMS = "extra_smux_max_streams"
         private const val NOTIF_CHANNEL_ID = "vpn_foreground"
         private const val NOTIF_ID = 1001

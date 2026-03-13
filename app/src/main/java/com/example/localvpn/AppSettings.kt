@@ -7,6 +7,7 @@ object AppSettings {
     private const val KEY_TUNNEL_DOMAIN = "tunnel_domain"
     private const val KEY_TUN_STACK = "tun_stack"
     private const val KEY_SMUX_MAX_STREAMS = "smux_max_streams"
+    private const val KEY_MUX_PROTOCOL = "mux_protocol"
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
@@ -14,6 +15,7 @@ object AppSettings {
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 1000
+    private const val DEFAULT_MUX_PROTOCOL = "smux"
 
     fun getTunnelDomain(context: Context): String {
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -63,6 +65,30 @@ object AppSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_SMUX_MAX_STREAMS, value.coerceIn(1, 5500))
+            .apply()
+    }
+
+
+    fun getMuxProtocol(context: Context): String {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_MUX_PROTOCOL, DEFAULT_MUX_PROTOCOL)
+            ?.trim()
+            ?.lowercase()
+            .orEmpty()
+        return when (value) {
+            "smux", "h2mux" -> value
+            else -> DEFAULT_MUX_PROTOCOL
+        }
+    }
+
+    fun setMuxProtocol(context: Context, protocol: String) {
+        val normalized = when (protocol.trim().lowercase()) {
+            "smux", "h2mux" -> protocol.trim().lowercase()
+            else -> DEFAULT_MUX_PROTOCOL
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_MUX_PROTOCOL, normalized)
             .apply()
     }
 

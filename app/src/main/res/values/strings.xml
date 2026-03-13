@@ -20,7 +20,9 @@
     <string name="vpn_permission_denied">Permiso de VPN denegado</string>
     <string name="need_auth">Debes autenticar antes de conectar</string>
     <string name="info_title">Info</string>
-    <string name="info_text">• TUN Stack: ahora gVisor es el predeterminado. Si notas lentitud, prueba System. Mixed es un punto intermedio.\n\n• Los cambios de TUN/SMUX se aplican al desconectar y volver a conectar.\n\n• SMUX recomendado: 32. Subirlo puede aumentar consumo de batería y RAM.\n\n• Quitar restricciones de batería ayuda a evitar micro cortes.</string>
+    <string name="info_text">• TUN Stack: ahora gVisor es el predeterminado. Si notas lentitud, prueba System. Mixed es un punto intermedio.\n\n• Los cambios de TUN/SMUX se aplican al desconectar y volver a conectar.\n\n• MUX configurable: smux o h2mux.
+
+• SMUX recomendado: 1000 para apps con muchas conexiones activas; puedes bajarlo si deseas menor consumo.\n\n• Quitar restricciones de batería ayuda a evitar micro cortes.</string>
     <string name="contact_title">Contacto</string>
     <string name="contact_telegram">Telegram</string>
     <string name="contact_whatsapp">WhatsApp</string>

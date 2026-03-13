@@ -7,6 +7,11 @@
     <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
     <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
     <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
+    <string name="gamer_manual_package_hint">Agregar paquete manual (ej: com.supercell.brawlstars)</string>
+    <string name="gamer_add_package">Agregar</string>
+    <string name="gamer_invalid_package">Nombre de paquete inválido</string>
+    <string name="gamer_manual_added">Paquete agregado: %1$s</string>
+    <string name="gamer_manual_already_added">El paquete ya estaba en la lista</string>
     <string name="custom_proxy_host_hint">Host/IP del proxy propio (ej: midominio.com)</string>
     <string name="custom_proxy_port_hint">Puerto del proxy propio (1-65535)</string>
     <string name="custom_payload1_hint">Payload 1 (opcional, se envía primero)</string>
@@ -37,6 +42,7 @@ Si no te da internet o no genera datos, cambia entre System y Gvisor hasta que f
 
 Importante: después de cambiar TUN debes desconectar y volver a conectar para aplicar cambios.</string>
     <string name="tun_warning_continue">Entendido, conectar</string>
+    <string name="tun_warning_do_not_show">No volver a mostrar</string>
     <string name="need_auth">Debes autenticar antes de conectar</string>
     <string name="info_title">Info</string>
     <string name="info_text">• Perfiles disponibles:

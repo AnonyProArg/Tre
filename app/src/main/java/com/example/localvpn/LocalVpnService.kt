@@ -168,7 +168,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 workingPath = filesDir.absolutePath
                 tempPath = cacheDir.absolutePath
                 fixAndroidStack = true
-                debug = true
+                debug = false
             }
             Libbox.setup(opts)
             isLibboxSetupDone.set(true)
@@ -427,7 +427,6 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun emitLog(message: String) {
-        Log.i(TAG, message)
         VpnLogStore.add(message)
     }
 

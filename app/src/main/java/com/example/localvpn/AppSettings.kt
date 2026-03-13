@@ -13,7 +13,7 @@ object AppSettings {
     private const val KEY_SERVER_LIST = "server_list"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
-    private const val DEFAULT_SMUX_MAX_STREAMS = 32
+    private const val DEFAULT_SMUX_MAX_STREAMS = 256
 
     fun getTunnelDomain(context: Context): String {
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -56,13 +56,13 @@ object AppSettings {
     fun getSmuxMaxStreams(context: Context): Int {
         val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_SMUX_MAX_STREAMS, DEFAULT_SMUX_MAX_STREAMS)
-        return value.coerceIn(1, 512)
+        return value.coerceIn(1, 5000)
     }
 
     fun setSmuxMaxStreams(context: Context, value: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putInt(KEY_SMUX_MAX_STREAMS, value.coerceIn(1, 512))
+            .putInt(KEY_SMUX_MAX_STREAMS, value.coerceIn(1, 5000))
             .apply()
     }
 

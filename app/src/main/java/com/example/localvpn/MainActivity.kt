@@ -63,7 +63,9 @@ class MainActivity : ComponentActivity() {
         shareNetButton = findViewById(R.id.shareProxyButton)
 
         val stackValues = listOf("gvisor", "system", "mixed")
-        tunStackSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, stackValues)
+        val stackAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, stackValues)
+        stackAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
+        tunStackSpinner.adapter = stackAdapter
 
         hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
         hwidLabel.text = "HWID: $hwid"
@@ -165,14 +167,18 @@ class MainActivity : ComponentActivity() {
     private fun loadServersFromStorage(preferredHost: String? = null) {
         serverList = AppSettings.getServerList(this)
         if (serverList.isEmpty()) {
-            serverSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf(getString(R.string.no_servers)))
+            val emptyAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, listOf(getString(R.string.no_servers)))
+            emptyAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
+            serverSpinner.adapter = emptyAdapter
             serverStateLabel.text = "⚪ ${getString(R.string.server_state_unknown)}"
             lastAuthDomain = ""
             return
         }
 
         val labels = serverList.mapIndexed { index, s -> "Server #${index + 1} | ${s.region.ifBlank { "N/A" }}" }
-        serverSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        val serverAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, labels)
+        serverAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
+        serverSpinner.adapter = serverAdapter
 
         val hostToSelect = preferredHost ?: AppSettings.getTunnelDomain(this).ifBlank { serverList.first().host }
         val idx = serverList.indexOfFirst { it.host == hostToSelect }.coerceAtLeast(0)

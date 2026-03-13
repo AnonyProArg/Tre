@@ -77,32 +77,88 @@ object BlackTunnelClient {
                 "Upgrade: websocket\r\n\r\n"
             ).toByteArray()
 
-        val addresses = runCatching { InetAddress.getAllByName(CENTRAL_HOST).toList() }.getOrDefault(emptyList())
-        addresses.forEach { addr ->
-            val socket = Socket()
-            try {
-                socket.tcpNoDelay = true
-                socket.keepAlive = true
-                socket.connect(InetSocketAddress(addr, 80), 7_000)
-                socket.soTimeout = 5_000
-                socket.receiveBufferSize = 256 * 1024
-                socket.sendBufferSize = 256 * 1024
-                val out = socket.getOutputStream()
-                out.write(request)
-                out.flush()
-                val raw = readResponse(socket)
-                val headers = parseSecondResponse(raw).first
-                val list = headers["x-servers"].orEmpty()
-                if (list.isBlank()) return@forEach
-                val parsed = parseServerList(list)
-                if (parsed.isNotEmpty()) return parsed
-            } catch (e: Exception) {
-                logger?.invoke("fetchServers error: ${e.message}")
-            } finally {
-                closeQuietly(socket)
+        repeat(CHANNEL_CONNECT_RETRIES) { attempt ->
+            // 1) Método principal: IPv6 fija + variantes de payload.
+            buildPayloadVariants().forEach { payload ->
+                val response = connectForServers(
+                    address = InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT),
+                    p1 = payload,
+                    request = request,
+                    logger = logger
+                )
+                if (response.isNotEmpty()) return response
+            }
+
+            // 2) Método secundario: IPv6 dinámica por feedback + DNS.
+            resolveDynamicIpv6Candidates(CENTRAL_HOST).forEach { ip6 ->
+                buildPayloadVariants().forEach { payload ->
+                    val response = connectForServers(
+                        address = InetSocketAddress(ip6, PROXY_PORT),
+                        p1 = payload,
+                        request = request,
+                        logger = logger
+                    )
+                    if (response.isNotEmpty()) return response
+                }
+            }
+
+            // 3) Último recurso: IPv4 directa al central (suele resetear, pero queda como fallback).
+            val ipv4 = runCatching { InetAddress.getAllByName(CENTRAL_HOST).filterIsInstance<Inet4Address>() }
+                .getOrDefault(emptyList())
+            ipv4.forEach { ip4 ->
+                val response = connectForServers(
+                    address = InetSocketAddress(ip4, 80),
+                    p1 = null,
+                    request = request,
+                    logger = logger
+                )
+                if (response.isNotEmpty()) return response
+            }
+
+            if (attempt < CHANNEL_CONNECT_RETRIES - 1) {
+                logger?.invoke("Reintentando actualización de servidores (${attempt + 1}/$CHANNEL_CONNECT_RETRIES)")
+                Thread.sleep((350L * (attempt + 1)).coerceAtMost(1_000L))
             }
         }
+
         return emptyList()
+    }
+
+    private fun connectForServers(
+        address: InetSocketAddress,
+        p1: ByteArray?,
+        request: ByteArray,
+        logger: ((String) -> Unit)?
+    ): List<ServerInfo> {
+        val socket = Socket()
+        return try {
+            socket.tcpNoDelay = true
+            socket.keepAlive = true
+            socket.connect(address, 12_000)
+            socket.soTimeout = 9_000
+            socket.receiveBufferSize = 256 * 1024
+            socket.sendBufferSize = 256 * 1024
+            val out = socket.getOutputStream()
+            if (p1 != null) out.write(p1)
+            out.write(request)
+            out.flush()
+            val raw = readResponse(socket)
+            val headers = parseSecondResponse(raw).first
+            val xServers = headers["x-servers"].orEmpty()
+            val parsed = if (xServers.isBlank()) emptyList() else parseServerList(xServers)
+            if (parsed.isNotEmpty() && socket.inetAddress is Inet6Address) {
+                synchronized(ipv6FeedbackLock) {
+                    lastGoodIpv6Literal = socket.inetAddress.hostAddress.orEmpty()
+                    lastGoodDomainHint = CENTRAL_HOST
+                }
+            }
+            parsed
+        } catch (e: Exception) {
+            logger?.invoke("fetchServers connect error=${e.message}")
+            emptyList()
+        } finally {
+            closeQuietly(socket)
+        }
     }
 
     private fun parseServerList(value: String): List<ServerInfo> {

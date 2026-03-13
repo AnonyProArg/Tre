@@ -7,6 +7,13 @@
     <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
     <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
     <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
+    <string name="custom_proxy_host_hint">Host/IP del proxy propio (ej: midominio.com)</string>
+    <string name="custom_proxy_port_hint">Puerto del proxy propio (1-65535)</string>
+    <string name="custom_payload1_hint">Payload 1 (opcional, se envía primero)</string>
+    <string name="custom_payload2_hint">Payload 2 (obligatorio, se envía luego)</string>
+    <string name="custom_proxy_host_required">Debes ingresar el host del proxy propio</string>
+    <string name="custom_proxy_port_required">Debes ingresar un puerto válido (1-65535)</string>
+    <string name="custom_payload2_required">Debes ingresar el payload 2 para abrir el túnel</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>
@@ -23,17 +30,27 @@
     <string name="vpn_started">VPN iniciada</string>
     <string name="vpn_stopped">VPN detenida</string>
     <string name="vpn_permission_denied">Permiso de VPN denegado</string>
+    <string name="tun_warning_title">Antes de conectar: prueba TUN System o Gvisor</string>
+    <string name="tun_warning_message">En muchos teléfonos TUN Mixed no funciona bien.
+
+Si no te da internet o no genera datos, cambia entre System y Gvisor hasta que funcione en tu equipo.
+
+Importante: después de cambiar TUN debes desconectar y volver a conectar para aplicar cambios.</string>
+    <string name="tun_warning_continue">Entendido, conectar</string>
     <string name="need_auth">Debes autenticar antes de conectar</string>
     <string name="info_title">Info</string>
     <string name="info_text">• Perfiles disponibles:
   - Gama baja: prioriza compatibilidad en equipos limitados.
-  - Ahorro batería: reduce consumo con buena estabilidad general.
+  - Ahorro batería: reduce consumo con buena estabilidad general (usa TUN System por compatibilidad).
   - Normal (default): smux + 5000 para mantener túneles y notificaciones activas.
-  - Ultra: configuración agresiva para máxima estabilidad simultánea.
+  - Ultra: configuración agresiva para máxima estabilidad simultánea (usa TUN Gvisor por compatibilidad).
   - Gamer: permite elegir app(s) de juego para pasar por el túnel; por defecto ninguna seleccionada.
   - Personalizado: permite editar streams manualmente (1-20000).
+  - Servidor propio: permite usar proxy/puerto y payloads propios (sin validación de cuenta).
 
 • En Gamer, selecciona la app desde la lista filtrable; lo no seleccionado se ignora del túnel gamer.
+
+• TUN Mixed actualmente puede fallar en varios teléfonos. Si no hay datos, prueba entre TUN System y TUN Gvisor.
 
 • Los cambios de perfil/TUN/MUX se aplican al desconectar y volver a conectar.
 
@@ -47,7 +64,7 @@
     <string name="contact_whatsapp">WhatsApp</string>
     <string name="open_link_error">No se pudo abrir el enlace</string>
     <string name="share_proxy_title">Share Net activado</string>
-    <string name="share_proxy_text">Comparte Wi‑Fi/hotspot y configura en el otro dispositivo:\nIP: %1$s\nPuerto: %2$d\nTipo: Proxy manual HTTP/SOCKS.\n\nSi cambias ajustes del túnel, reconecta para aplicar.</string>
+    <string name="share_proxy_text">Comparte Wi‑Fi/hotspot y configura en el otro dispositivo:\nIP recomendada: %1$s\nPuerto: %2$d\nTipo: Proxy manual HTTP/SOCKS.\n\nSi 192.168.43.1 no funciona, usa la IP real que muestra este teléfono en la lista.\nSi cambias ajustes del túnel, reconecta para aplicar.</string>
     <string name="local_expired">Suscripción vencida localmente, reconecta con una cuenta activa.</string>
     <string name="update_servers">Actualizar</string>
     <string name="servers_updating">Actualizando servidores…</string>

@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
         toggleVpnButton = findViewById(R.id.startVpnButton)
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
+        shareNetEnabled = AppSettings.isShareNetEnabled(this)
 
         val stackValues = listOf("gvisor", "system", "mixed")
         val stackAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, stackValues)
@@ -252,6 +253,7 @@ class MainActivity : ComponentActivity() {
 
         shareNetButton.setOnClickListener {
             shareNetEnabled = !shareNetEnabled
+            AppSettings.setShareNetEnabled(this, shareNetEnabled)
             renderShareNetButton()
             if (shareNetEnabled) showShareNetInfoDialog()
         }
@@ -697,6 +699,7 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_CUSTOM_PROXY_PORT, AppSettings.getCustomProxyPort(this))
                 .putExtra(LocalVpnService.EXTRA_CUSTOM_PAYLOAD1, AppSettings.getCustomPayload1(this))
                 .putExtra(LocalVpnService.EXTRA_CUSTOM_PAYLOAD2, AppSettings.getCustomPayload2(this))
+                .putExtra(LocalVpnService.EXTRA_SHARE_NET_ENABLED, shareNetEnabled)
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

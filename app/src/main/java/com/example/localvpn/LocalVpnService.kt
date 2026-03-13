@@ -23,6 +23,8 @@ import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.libbox.WIFIState
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
@@ -30,12 +32,14 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var commandServer: CommandServer? = null
     private var tunFd: ParcelFileDescriptor? = null
     private var proxyHandle: BlackTunnelClient.ProxyHandle? = null
+    private var shareProxyHandle: BlackTunnelClient.ProxyHandle? = null
     private var libboxServiceStarted = false
     private var lastStartIntent: Intent? = null
     private var isStopping = false
     private var gamerPackages: Set<String> = emptySet()
     private var performanceProfile: String = "normal"
     private var customProxyConfig: BlackTunnelClient.CustomProxyConfig? = null
+    private var shareNetEnabled: Boolean = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -69,6 +73,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             gamerPackages = intentGamerPackagesOrSettings()
             val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
             customProxyConfig = intentCustomProxyConfigOrSettings()
+            shareNetEnabled = intentShareNetEnabledOrSettings()
 
             emitLog("HWID sesión: $hwid")
             emitLog("Dominio túnel sesión: $tunnelDomain")
@@ -77,21 +82,50 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             emitLog("Perfil sesión: $performanceProfile")
             emitLog("Apps gamer sesión: ${if (gamerPackages.isEmpty()) "(ninguna)" else gamerPackages.joinToString()}" )
             emitLog("MUX max_streams sesión: $smuxMaxStreams")
+            emitLog("Share Net sesión: $shareNetEnabled")
             if (performanceProfile == "custom_proxy") {
                 val cfg = customProxyConfig ?: throw IllegalArgumentException("Falta configuración custom proxy")
                 emitLog("Custom proxy sesión: ${cfg.host}:${cfg.port}")
                 proxyHandle = BlackTunnelClient.startProxyCustom(
                     config = cfg,
                     protectSocket = { socket -> protect(socket) },
-                    logger = { msg -> emitLog(msg) }
+                    logger = { msg -> emitLog(msg) },
+                    bindHost = BlackTunnelClient.LOCAL_HOST
                 )
             } else {
                 proxyHandle = BlackTunnelClient.startProxy(
                     hwid = hwid,
                     tunnelDomain = tunnelDomain,
                     protectSocket = { socket -> protect(socket) },
-                    logger = { msg -> emitLog(msg) }
+                    logger = { msg -> emitLog(msg) },
+                    bindHost = BlackTunnelClient.LOCAL_HOST
                 )
+            }
+
+            if (shareNetEnabled) {
+                val hotspotBindAddress = detectHotspotBindAddress()
+                if (hotspotBindAddress != null) {
+                    shareProxyHandle = if (performanceProfile == "custom_proxy") {
+                        val cfg = customProxyConfig ?: throw IllegalArgumentException("Falta configuración custom proxy")
+                        BlackTunnelClient.startProxyCustom(
+                            config = cfg,
+                            protectSocket = { socket -> protect(socket) },
+                            logger = { msg -> emitLog("[ShareNet] $msg") },
+                            bindHost = hotspotBindAddress
+                        )
+                    } else {
+                        BlackTunnelClient.startProxy(
+                            hwid = hwid,
+                            tunnelDomain = tunnelDomain,
+                            protectSocket = { socket -> protect(socket) },
+                            logger = { msg -> emitLog("[ShareNet] $msg") },
+                            bindHost = hotspotBindAddress
+                        )
+                    }
+                    emitLog("Share Net activo en $hotspotBindAddress:${BlackTunnelClient.LOCAL_PORT}")
+                } else {
+                    emitLog("WARN Share Net activo pero no se detectó IP de hotspot")
+                }
             }
 
             setupLibboxOnce()
@@ -188,6 +222,35 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         return AppSettings.getMuxMaxStreams(this, muxProtocol)
     }
 
+
+    private fun intentShareNetEnabledOrSettings(): Boolean {
+        return lastStartIntent?.getBooleanExtra(EXTRA_SHARE_NET_ENABLED, AppSettings.isShareNetEnabled(this))
+            ?: AppSettings.isShareNetEnabled(this)
+    }
+
+    private fun detectHotspotBindAddress(): String? {
+        return runCatching {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return@runCatching null
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                val name = iface.name.orEmpty().lowercase()
+                val looksHotspot = name.startsWith("ap") || name.contains("hotspot") || name.contains("swlan") || name.contains("wlan")
+                if (!iface.isUp || iface.isLoopback || !looksHotspot) continue
+                val addrs = iface.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress.orEmpty().substringBefore('%')
+                        if (ip.startsWith("192.168.") || ip.startsWith("172.") || ip.startsWith("10.")) {
+                            return@runCatching ip
+                        }
+                    }
+                }
+            }
+            null
+        }.getOrNull()
+    }
+
     private fun startForegroundCompat() {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -277,10 +340,12 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 BlackTunnelClient.notifyDisconnect(hwid, domain)
             }
             proxyHandle?.stop()
+            shareProxyHandle?.stop()
         } catch (e: Exception) {
             if (stopError == null) stopError = e
         } finally {
             proxyHandle = null
+            shareProxyHandle = null
         }
 
         try {
@@ -540,6 +605,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val EXTRA_CUSTOM_PROXY_PORT = "extra_custom_proxy_port"
         const val EXTRA_CUSTOM_PAYLOAD1 = "extra_custom_payload1"
         const val EXTRA_CUSTOM_PAYLOAD2 = "extra_custom_payload2"
+        const val EXTRA_SHARE_NET_ENABLED = "extra_share_net_enabled"
         private const val NOTIF_CHANNEL_ID = "vpn_foreground"
         private const val NOTIF_ID = 1001
         private val libboxSetupLock = Any()

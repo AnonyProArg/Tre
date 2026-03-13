@@ -169,6 +169,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun openBatteryOptimizationSettings() {
+        try {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            val pkg = packageName
+            if (!pm.isIgnoringBatteryOptimizations(pkg)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                intent.data = Uri.parse("package:$pkg")
+                startActivity(intent)
+            } else {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
+    }
+
     companion object {
         private const val REQUEST_CODE_PREPARE_VPN = 5001
     }

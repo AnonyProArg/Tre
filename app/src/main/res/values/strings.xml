@@ -3,7 +3,6 @@
     <string name="start_vpn">Conectar</string>
     <string name="stop_vpn">Desconectar</string>
     <string name="copy_id">Copiar ID</string>
-    <string name="save_config">Guardar</string>
     <string name="smux_hint">SMUX</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>

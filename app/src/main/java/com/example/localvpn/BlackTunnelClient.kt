@@ -11,6 +11,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.Collections
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -83,6 +84,8 @@ object BlackTunnelClient {
                 socket.keepAlive = true
                 socket.connect(InetSocketAddress(addr, 80), 7_000)
                 socket.soTimeout = 5_000
+                socket.receiveBufferSize = 256 * 1024
+                socket.sendBufferSize = 256 * 1024
                 val out = socket.getOutputStream()
                 out.write(request)
                 out.flush()
@@ -125,7 +128,6 @@ object BlackTunnelClient {
         if (headers.isEmpty()) throw AuthException("Sin respuesta del servidor")
 
         val status = headers["x-status"] ?: "INVALID"
-
         return when (status) {
             "OK" -> AccountInfo(
                 status = status,
@@ -164,7 +166,12 @@ object BlackTunnelClient {
         thread(name = "bt-proxy-accept", isDaemon = true) {
             while (!stopFlag.get()) {
                 try {
-                    val client = server.accept()
+                    val client = server.accept().apply {
+                        tcpNoDelay = true
+                        keepAlive = true
+                        receiveBufferSize = 256 * 1024
+                        sendBufferSize = 256 * 1024
+                    }
                     runCatching { protectSocket(client) }
                     activeSockets.add(client)
                     thread(name = "bt-proxy-client", isDaemon = true) {
@@ -194,11 +201,23 @@ object BlackTunnelClient {
             closeQuietly(tunnelSocket)
             return
         }
-        thread(name = "bt-relay-up", isDaemon = true) { relay(client, tunnelSocket) }
-        thread(name = "bt-relay-down", isDaemon = true) { relay(tunnelSocket, client) }
+
+        val done = CountDownLatch(2)
+        thread(name = "bt-relay-up", isDaemon = true) {
+            relayOneWay(client, tunnelSocket)
+            done.countDown()
+        }
+        thread(name = "bt-relay-down", isDaemon = true) {
+            relayOneWay(tunnelSocket, client)
+            done.countDown()
+        }
+
+        done.await()
+        closeQuietly(client)
+        closeQuietly(tunnelSocket)
     }
 
-    private fun relay(src: Socket, dst: Socket) {
+    private fun relayOneWay(src: Socket, dst: Socket) {
         try {
             val buf = ByteArray(64 * 1024)
             val input = src.getInputStream()
@@ -208,13 +227,11 @@ object BlackTunnelClient {
                 if (read <= 0) break
                 output.write(buf, 0, read)
             }
+            output.flush()
         } catch (_: Exception) {
         } finally {
             runCatching { src.shutdownInput() }
             runCatching { dst.shutdownOutput() }
-            runCatching { dst.getOutputStream().flush() }
-            closeQuietly(src)
-            closeQuietly(dst)
         }
     }
 
@@ -265,7 +282,9 @@ object BlackTunnelClient {
             socket.tcpNoDelay = true
             socket.keepAlive = true
             socket.connect(address, 10_000)
-            socket.soTimeout = 5_000
+            socket.soTimeout = 8_000
+            socket.receiveBufferSize = 256 * 1024
+            socket.sendBufferSize = 256 * 1024
             val output = socket.getOutputStream()
             if (p1 != null) output.write(p1)
             output.write(p2)
@@ -290,7 +309,7 @@ object BlackTunnelClient {
         val input = socket.getInputStream()
         val out = ByteArrayOutputStream()
         val buf = ByteArray(4096)
-        val deadline = System.currentTimeMillis() + 5_000
+        val deadline = System.currentTimeMillis() + 8_000
         while (System.currentTimeMillis() < deadline) {
             val n = try { input.read(buf) } catch (_: SocketTimeoutException) { break }
             if (n <= 0) break

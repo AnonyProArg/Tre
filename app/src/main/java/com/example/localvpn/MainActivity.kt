@@ -17,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
+import androidx.core.widget.doAfterTextChanged
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.time.LocalDate
@@ -74,14 +75,21 @@ class MainActivity : ComponentActivity() {
         refreshPersistentConnectionState()
         refreshBatteryButtonVisibility()
 
+        tunStackSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                saveConfigFromInputs(showToast = false)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+        smuxStreamsInput.doAfterTextChanged {
+            saveConfigFromInputs(showToast = false)
+        }
+
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("hwid", hwid))
             Toast.makeText(this, getString(R.string.id_copied), Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<Button>(R.id.saveConfigButton).setOnClickListener {
-            saveConfigFromInputs(showToast = true)
         }
 
         findViewById<Button>(R.id.updateServersButton).setOnClickListener {
@@ -105,6 +113,11 @@ class MainActivity : ComponentActivity() {
         renderShareNetButton()
     }
 
+    override fun onPause() {
+        saveConfigFromInputs(showToast = false)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
         refreshPersistentConnectionState()
@@ -116,7 +129,7 @@ class MainActivity : ComponentActivity() {
         val smux = smuxStreamsInput.text.toString().toIntOrNull()
 
         if (smux == null) {
-            Toast.makeText(this, "SMUX inválido", Toast.LENGTH_SHORT).show()
+            if (showToast) Toast.makeText(this, "SMUX inválido", Toast.LENGTH_SHORT).show()
             return false
         }
 

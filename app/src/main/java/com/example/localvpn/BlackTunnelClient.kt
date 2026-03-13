@@ -89,7 +89,7 @@ object BlackTunnelClient {
                 val raw = readResponse(socket)
                 val headers = parseSecondResponse(raw).first
                 val list = headers["x-servers"].orEmpty()
-                if (list.isBlank()) continue
+                if (list.isBlank()) return@forEach
                 val parsed = parseServerList(list)
                 if (parsed.isNotEmpty()) return parsed
             } catch (e: Exception) {

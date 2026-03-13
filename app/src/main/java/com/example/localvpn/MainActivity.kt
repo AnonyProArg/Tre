@@ -14,6 +14,9 @@ import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ListView
+import android.widget.LinearLayout
+import android.content.pm.PackageManager
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -41,6 +44,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var muxProtocolSpinner: Spinner
     private lateinit var muxStreamsSpinner: Spinner
     private lateinit var customStreamsInput: EditText
+    private lateinit var gamerSection: LinearLayout
+    private lateinit var gamerSearchInput: EditText
+    private lateinit var gamerAppsList: ListView
     private lateinit var toggleVpnButton: Button
     private lateinit var batteryButton: Button
     private lateinit var shareNetButton: Button
@@ -56,6 +62,10 @@ class MainActivity : ComponentActivity() {
     private var lastTrafficDown = 0L
     private var lastTrafficTs = 0L
     private var lastToggleAtMs = 0L
+    private var allLaunchableApps: List<Pair<String, String>> = emptyList()
+    private var filteredLaunchableApps: List<Pair<String, String>> = emptyList()
+    private lateinit var gamerAppsAdapter: ArrayAdapter<String>
+    private var selectedGamerPackage: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -73,6 +83,9 @@ class MainActivity : ComponentActivity() {
         muxProtocolSpinner = findViewById(R.id.muxProtocolSpinner)
         muxStreamsSpinner = findViewById(R.id.muxStreamsSpinner)
         customStreamsInput = findViewById(R.id.customStreamsInput)
+        gamerSection = findViewById(R.id.gamerSection)
+        gamerSearchInput = findViewById(R.id.gamerSearchInput)
+        gamerAppsList = findViewById(R.id.gamerAppsList)
         toggleVpnButton = findViewById(R.id.startVpnButton)
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
@@ -104,6 +117,8 @@ class MainActivity : ComponentActivity() {
         muxProtocolSpinner.setSelection(muxValues.indexOf(savedMux).coerceAtLeast(0))
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
         customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
+        selectedGamerPackage = AppSettings.getGamerTargetPackage(this)
+        setupGamerAppsUi()
         renderProfileUi(savedProfile)
 
         accountLabel.text = AppSettings.getAccountSummary(this).ifBlank { getString(R.string.account_unknown) }
@@ -149,6 +164,17 @@ class MainActivity : ComponentActivity() {
 
         customStreamsInput.doAfterTextChanged {
             saveConfigFromInputs(showToast = false)
+        }
+        gamerSearchInput.doAfterTextChanged {
+            filterGamerApps(it?.toString().orEmpty())
+        }
+        gamerAppsList.setOnItemClickListener { _, _, position, _ ->
+            val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
+            selectedGamerPackage = selected.second
+            AppSettings.setGamerTargetPackage(this, selected.second)
+            filterGamerApps(gamerSearchInput.text.toString())
+            saveConfigFromInputs(showToast = false)
+            Toast.makeText(this, getString(R.string.gamer_selected_app, selected.first), Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
@@ -218,6 +244,7 @@ class MainActivity : ComponentActivity() {
             AppSettings.setCustomMuxMaxStreams(this, muxStreams)
         }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
+        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackage(this, selectedGamerPackage)
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
@@ -257,8 +284,48 @@ class MainActivity : ComponentActivity() {
 
     private fun renderProfileUi(profile: String) {
         val isCustom = profile == "custom"
+        val isGamer = profile == "gamer"
         muxStreamsSpinner.visibility = if (isCustom) android.view.View.GONE else android.view.View.VISIBLE
         customStreamsInput.visibility = if (isCustom) android.view.View.VISIBLE else android.view.View.GONE
+        gamerSection.visibility = if (isGamer) android.view.View.VISIBLE else android.view.View.GONE
+    }
+
+    private fun setupGamerAppsUi() {
+        gamerAppsAdapter = ArrayAdapter(this, R.layout.spinner_item_dropdown, mutableListOf())
+        gamerAppsList.adapter = gamerAppsAdapter
+        thread(name = "apps-loader") {
+            val pm = packageManager
+            val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val apps = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+                .map {
+                    val label = it.loadLabel(pm).toString().ifBlank { it.activityInfo.packageName }
+                    label to it.activityInfo.packageName
+                }
+                .distinctBy { it.second }
+                .sortedBy { it.first.lowercase() }
+            runOnUiThread {
+                allLaunchableApps = apps
+                filterGamerApps("")
+            }
+        }
+    }
+
+    private fun filterGamerApps(query: String) {
+        val normalized = query.trim().lowercase()
+        filteredLaunchableApps = if (normalized.isBlank()) {
+            allLaunchableApps
+        } else {
+            allLaunchableApps.filter { (label, pkg) ->
+                label.lowercase().contains(normalized) || pkg.lowercase().contains(normalized)
+            }
+        }
+        val rows = filteredLaunchableApps.map { (label, pkg) ->
+            val picked = if (pkg == selectedGamerPackage) " ✅" else ""
+            "$label ($pkg)$picked"
+        }
+        gamerAppsAdapter.clear()
+        gamerAppsAdapter.addAll(rows)
+        gamerAppsAdapter.notifyDataSetChanged()
     }
 
     private fun bindMuxStreamsOptions(protocol: String, preferred: Int) {
@@ -472,6 +539,8 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_TUN_STACK, AppSettings.getTunStack(this))
                 .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, activeProtocol)
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
+                .putExtra(LocalVpnService.EXTRA_PERFORMANCE_PROFILE, activeProfile)
+                .putExtra(LocalVpnService.EXTRA_GAMER_PACKAGE, AppSettings.getGamerTargetPackage(this))
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

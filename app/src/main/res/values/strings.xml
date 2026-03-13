@@ -5,6 +5,8 @@
     <string name="copy_id">Copiar ID</string>
     <string name="smux_hint">Streams</string>
     <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
+    <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
+    <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>
@@ -28,8 +30,10 @@
   - Ahorro batería: reduce consumo con buena estabilidad general.
   - Normal (default): smux + 5000 para mantener túneles y notificaciones activas.
   - Ultra: configuración agresiva para máxima estabilidad simultánea.
-  - Gamer: prioriza baja latencia y recursos altos para juegos.
+  - Gamer: permite elegir app(s) de juego para pasar por el túnel; por defecto ninguna seleccionada.
   - Personalizado: permite editar streams manualmente (1-20000).
+
+• En Gamer, selecciona la app desde la lista filtrable; lo no seleccionado se ignora del túnel gamer.
 
 • Los cambios de perfil/TUN/MUX se aplican al desconectar y volver a conectar.
 

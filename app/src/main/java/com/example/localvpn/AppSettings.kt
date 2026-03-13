@@ -11,6 +11,7 @@ object AppSettings {
     private const val KEY_CUSTOM_MUX_MAX_STREAMS = "custom_mux_max_streams"
     private const val KEY_MUX_PROTOCOL = "mux_protocol"
     private const val KEY_PERFORMANCE_PROFILE = "performance_profile"
+    private const val KEY_GAMER_TARGET_PACKAGE = "gamer_target_package"
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
@@ -152,6 +153,21 @@ object AppSettings {
 
     fun setMuxMaxStreams(context: Context, protocol: String, value: Int) {
         if (protocol.lowercase() == "h2mux") setH2MuxMaxStreams(context, value) else setSmuxMaxStreams(context, value)
+    }
+
+
+    fun getGamerTargetPackage(context: Context): String {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_GAMER_TARGET_PACKAGE, "")
+            ?.trim()
+            .orEmpty()
+    }
+
+    fun setGamerTargetPackage(context: Context, packageName: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_GAMER_TARGET_PACKAGE, packageName.trim())
+            .apply()
     }
 
     fun isVpnActive(context: Context): Boolean {

@@ -33,6 +33,8 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var libboxServiceStarted = false
     private var lastStartIntent: Intent? = null
     private var isStopping = false
+    private var gamerPackage: String = ""
+    private var performanceProfile: String = "normal"
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -62,12 +64,16 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val tunnelDomain = intentDomainOrSettings()
             val tunStack = intentTunStackOrSettings()
             val muxProtocol = intentMuxProtocolOrSettings()
+            performanceProfile = intentProfileOrSettings()
+            gamerPackage = intentGamerPackageOrSettings()
             val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
 
             emitLog("HWID sesión: $hwid")
             emitLog("Dominio túnel sesión: $tunnelDomain")
             emitLog("TUN stack sesión: $tunStack")
             emitLog("MUX protocolo sesión: $muxProtocol")
+            emitLog("Perfil sesión: $performanceProfile")
+            emitLog("App gamer sesión: ${gamerPackage.ifBlank { "(ninguna)" }}")
             emitLog("MUX max_streams sesión: $smuxMaxStreams")
 
             proxyHandle = BlackTunnelClient.startProxy(
@@ -121,6 +127,19 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         if (fromIntent == "smux" || fromIntent == "h2mux") return fromIntent
         emitLog("WARN EXTRA_MUX_PROTOCOL ausente, usando ajuste guardado")
         return AppSettings.getMuxProtocol(this)
+    }
+
+    private fun intentProfileOrSettings(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_PERFORMANCE_PROFILE)?.trim().orEmpty().lowercase()
+        return when (fromIntent) {
+            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> fromIntent
+            else -> AppSettings.getPerformanceProfile(this)
+        }
+    }
+
+    private fun intentGamerPackageOrSettings(): String {
+        val fromIntent = lastStartIntent?.getStringExtra(EXTRA_GAMER_PACKAGE)?.trim().orEmpty()
+        return if (fromIntent.isNotBlank()) fromIntent else AppSettings.getGamerTargetPackage(this)
     }
 
     private fun intentMuxStreamsOrSettings(muxProtocol: String): Int {
@@ -275,19 +294,33 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             builder.addRoute("::", 0)
         }
 
-        val excludePackages = options.getExcludePackage()
-        while (excludePackages.hasNext()) {
+        if (performanceProfile == "gamer") {
             try {
-                builder.addDisallowedApplication(excludePackages.next())
-            } catch (_: Exception) {
+                if (gamerPackage.isNotBlank()) {
+                    builder.addAllowedApplication(gamerPackage)
+                    emitLog("Modo gamer activo, app permitida en TUN: $gamerPackage")
+                } else {
+                    builder.addAllowedApplication(APP_PACKAGE_NAME)
+                    emitLog("Modo gamer sin app seleccionada: túnel de usuario en espera")
+                }
+            } catch (e: Exception) {
+                emitLog("WARN no se pudo aplicar filtro gamer: ${e.message}")
             }
-        }
+        } else {
+            val excludePackages = options.getExcludePackage()
+            while (excludePackages.hasNext()) {
+                try {
+                    builder.addDisallowedApplication(excludePackages.next())
+                } catch (_: Exception) {
+                }
+            }
 
-        try {
-            builder.addDisallowedApplication(APP_PACKAGE_NAME)
-            emitLog("App excluida del TUN: $APP_PACKAGE_NAME")
-        } catch (e: Exception) {
-            emitLog("WARN no se pudo excluir app del TUN: ${e.message}")
+            try {
+                builder.addDisallowedApplication(APP_PACKAGE_NAME)
+                emitLog("App excluida del TUN: $APP_PACKAGE_NAME")
+            } catch (e: Exception) {
+                emitLog("WARN no se pudo excluir app del TUN: ${e.message}")
+            }
         }
 
         tunFd?.close()
@@ -459,6 +492,8 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val EXTRA_TUN_STACK = "extra_tun_stack"
         const val EXTRA_MUX_PROTOCOL = "extra_mux_protocol"
         const val EXTRA_SMUX_MAX_STREAMS = "extra_smux_max_streams"
+        const val EXTRA_PERFORMANCE_PROFILE = "extra_performance_profile"
+        const val EXTRA_GAMER_PACKAGE = "extra_gamer_package"
         private const val NOTIF_CHANNEL_ID = "vpn_foreground"
         private const val NOTIF_ID = 1001
         private val libboxSetupLock = Any()

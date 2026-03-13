@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var customStreamsInput: EditText
     private lateinit var gamerSection: LinearLayout
     private lateinit var gamerSearchInput: EditText
+    private lateinit var gamerManualPackageInput: EditText
+    private lateinit var addGamerPackageButton: Button
     private lateinit var gamerAppsList: ListView
     private lateinit var customProxySection: LinearLayout
     private lateinit var customProxyHostInput: EditText
@@ -93,6 +95,8 @@ class MainActivity : ComponentActivity() {
         customStreamsInput = findViewById(R.id.customStreamsInput)
         gamerSection = findViewById(R.id.gamerSection)
         gamerSearchInput = findViewById(R.id.gamerSearchInput)
+        gamerManualPackageInput = findViewById(R.id.gamerManualPackageInput)
+        addGamerPackageButton = findViewById(R.id.addGamerPackageButton)
         gamerAppsList = findViewById(R.id.gamerAppsList)
         customProxySection = findViewById(R.id.customProxySection)
         customProxyHostInput = findViewById(R.id.customProxyHostInput)
@@ -194,6 +198,27 @@ class MainActivity : ComponentActivity() {
         customPayload2Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
         gamerSearchInput.doAfterTextChanged {
             filterGamerApps(it?.toString().orEmpty())
+        }
+        addGamerPackageButton.setOnClickListener {
+            val manualPackage = gamerManualPackageInput.text.toString().trim()
+            if (!isValidPackageName(manualPackage)) {
+                Toast.makeText(this, getString(R.string.gamer_manual_package_invalid), Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val alreadySelected = selectedGamerPackages.contains(manualPackage)
+            selectedGamerPackages.add(manualPackage)
+            AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
+            gamerManualPackageInput.setText("")
+            if (!alreadySelected) {
+                val existing = allLaunchableApps.any { it.second == manualPackage }
+                if (!existing) {
+                    allLaunchableApps = (allLaunchableApps + ("Manual" to manualPackage))
+                        .distinctBy { it.second }
+                        .sortedBy { it.first.lowercase() }
+                }
+            }
+            filterGamerApps(gamerSearchInput.text.toString())
+            Toast.makeText(this, getString(R.string.gamer_manual_package_added, manualPackage), Toast.LENGTH_SHORT).show()
         }
         gamerAppsList.setOnItemClickListener { _, _, position, _ ->
             val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
@@ -364,20 +389,12 @@ class MainActivity : ComponentActivity() {
         gamerAppsList.adapter = gamerAppsAdapter
         thread(name = "apps-loader") {
             val pm = packageManager
-            val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val launchable = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
-                .map {
-                    val label = it.loadLabel(pm).toString().ifBlank { it.activityInfo.packageName }
-                    label to it.activityInfo.packageName
-                }
-
             val installed = pm.getInstalledApplications(PackageManager.MATCH_ALL)
                 .asSequence()
                 .filterNot { it.packageName == packageName }
                 .filter { app ->
-                    val hasCode = (app.flags and ApplicationInfo.FLAG_HAS_CODE) != 0
                     val isInstalled = (app.flags and ApplicationInfo.FLAG_INSTALLED) != 0
-                    hasCode && isInstalled
+                    isInstalled
                 }
                 .map { app ->
                     val label = pm.getApplicationLabel(app).toString().ifBlank { app.packageName }
@@ -385,7 +402,13 @@ class MainActivity : ComponentActivity() {
                 }
                 .toList()
 
-            val apps = (launchable + installed)
+            val manualSelected = selectedGamerPackages
+                .asSequence()
+                .filter { pkg -> installed.none { it.second == pkg } }
+                .map { pkg -> "Manual" to pkg }
+                .toList()
+
+            val apps = (installed + manualSelected)
                 .distinctBy { it.second }
                 .sortedBy { it.first.lowercase() }
 
@@ -393,6 +416,18 @@ class MainActivity : ComponentActivity() {
                 allLaunchableApps = apps
                 filterGamerApps(gamerSearchInput.text?.toString().orEmpty())
             }
+        }
+    }
+
+    private fun isValidPackageName(value: String): Boolean {
+        if (value.isBlank() || value.length > 255) return false
+        if (value.first() == '.' || value.last() == '.') return false
+        val parts = value.split('.')
+        if (parts.size < 2) return false
+        return parts.all { part ->
+            part.isNotBlank() &&
+                (part.first().isLetter() || part.first() == '_') &&
+                part.all { it.isLetterOrDigit() || it == '_' }
         }
     }
 

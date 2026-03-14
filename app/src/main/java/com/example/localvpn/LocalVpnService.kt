@@ -33,7 +33,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var libboxServiceStarted = false
     private var lastStartIntent: Intent? = null
     private var isStopping = false
-    private var gamerPackage: String = ""
+    private var gamerPackages: Set<String> = emptySet()
     private var performanceProfile: String = "normal"
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -65,7 +65,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val tunStack = intentTunStackOrSettings()
             val muxProtocol = intentMuxProtocolOrSettings()
             performanceProfile = intentProfileOrSettings()
-            gamerPackage = intentGamerPackageOrSettings()
+            gamerPackages = intentGamerPackagesOrSettings()
             val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
 
             emitLog("HWID sesión: $hwid")
@@ -73,7 +73,8 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             emitLog("TUN stack sesión: $tunStack")
             emitLog("MUX protocolo sesión: $muxProtocol")
             emitLog("Perfil sesión: $performanceProfile")
-            emitLog("App gamer sesión: ${gamerPackage.ifBlank { "(ninguna)" }}")
+            val gamerPackagesLabel = if (gamerPackages.isEmpty()) "(ninguna)" else gamerPackages.joinToString(",")
+            emitLog("Apps gamer sesión: $gamerPackagesLabel")
             emitLog("MUX max_streams sesión: $smuxMaxStreams")
 
             proxyHandle = BlackTunnelClient.startProxy(
@@ -137,9 +138,10 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
-    private fun intentGamerPackageOrSettings(): String {
+    private fun intentGamerPackagesOrSettings(): Set<String> {
         val fromIntent = lastStartIntent?.getStringExtra(EXTRA_GAMER_PACKAGE)?.trim().orEmpty()
-        return if (fromIntent.isNotBlank()) fromIntent else AppSettings.getGamerTargetPackage(this)
+        if (fromIntent.isNotBlank()) return setOf(fromIntent)
+        return AppSettings.getGamerTargetPackages(this)
     }
 
     private fun intentMuxStreamsOrSettings(muxProtocol: String): Int {
@@ -296,9 +298,11 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         if (performanceProfile == "gamer") {
             try {
-                if (gamerPackage.isNotBlank()) {
-                    builder.addAllowedApplication(gamerPackage)
-                    emitLog("Modo gamer activo, app permitida en TUN: $gamerPackage")
+                if (gamerPackages.isNotEmpty()) {
+                    gamerPackages.forEach { packageName ->
+                        builder.addAllowedApplication(packageName)
+                    }
+                    emitLog("Modo gamer activo, apps permitidas en TUN: ${gamerPackages.joinToString(",")}")
                 } else {
                     builder.addAllowedApplication(APP_PACKAGE_NAME)
                     emitLog("Modo gamer sin app seleccionada: túnel de usuario en espera")

@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
     private var allLaunchableApps: List<Pair<String, String>> = emptyList()
     private var filteredLaunchableApps: List<Pair<String, String>> = emptyList()
     private lateinit var gamerAppsAdapter: ArrayAdapter<String>
-    private var selectedGamerPackage: String = ""
+    private var selectedGamerPackages: MutableSet<String> = linkedSetOf()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
 
-        val stackValues = listOf("gvisor", "system", "mixed")
+        val stackValues = listOf("gvisor", "system")
         val stackAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, stackValues)
         stackAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         tunStackSpinner.adapter = stackAdapter
@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
         muxProtocolSpinner.setSelection(muxValues.indexOf(savedMux).coerceAtLeast(0))
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
         customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
-        selectedGamerPackage = AppSettings.getGamerTargetPackage(this)
+        selectedGamerPackages = AppSettings.getGamerTargetPackages(this).toMutableSet()
         setupGamerAppsUi()
         renderProfileUi(savedProfile)
 
@@ -170,11 +170,23 @@ class MainActivity : ComponentActivity() {
         }
         gamerAppsList.setOnItemClickListener { _, _, position, _ ->
             val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
-            selectedGamerPackage = selected.second
-            AppSettings.setGamerTargetPackage(this, selected.second)
+            val packageName = selected.second
+            val selectedNow = if (selectedGamerPackages.contains(packageName)) {
+                selectedGamerPackages.remove(packageName)
+                false
+            } else {
+                selectedGamerPackages.add(packageName)
+                true
+            }
+            AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
             filterGamerApps(gamerSearchInput.text.toString())
             saveConfigFromInputs(showToast = false)
-            Toast.makeText(this, getString(R.string.gamer_selected_app, selected.first), Toast.LENGTH_SHORT).show()
+            val toastText = if (selectedNow) {
+                getString(R.string.gamer_selected_app, selected.first)
+            } else {
+                getString(R.string.gamer_unselected_app, selected.first)
+            }
+            Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.copyIdButton).setOnClickListener {
@@ -244,7 +256,7 @@ class MainActivity : ComponentActivity() {
             AppSettings.setCustomMuxMaxStreams(this, muxStreams)
         }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
-        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackage(this, selectedGamerPackage)
+        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
@@ -252,27 +264,27 @@ class MainActivity : ComponentActivity() {
     private fun applyProfilePreset(profile: String, muxValues: List<String>) {
         when (profile) {
             "low_end" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
                 bindMuxStreamsOptions("h2mux", 700)
             }
             "battery" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
                 bindMuxStreamsOptions("h2mux", 1000)
             }
             "normal" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("gvisor"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("gvisor"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 5000)
             }
             "ultra" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 12000)
             }
             "gamer" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 15000)
             }
@@ -295,16 +307,31 @@ class MainActivity : ComponentActivity() {
         gamerAppsList.adapter = gamerAppsAdapter
         thread(name = "apps-loader") {
             val pm = packageManager
+            val apps = linkedMapOf<String, String>()
+
+            fun addCandidate(label: CharSequence?, pkg: String?) {
+                val packageName = pkg?.trim().orEmpty()
+                if (packageName.isBlank()) return
+                if (apps.containsKey(packageName)) return
+                val resolvedLabel = label?.toString()?.trim().orEmpty().ifBlank { packageName }
+                apps[packageName] = resolvedLabel
+            }
+
             val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val apps = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
-                .map {
-                    val label = it.loadLabel(pm).toString().ifBlank { it.activityInfo.packageName }
-                    label to it.activityInfo.packageName
-                }
-                .distinctBy { it.second }
+            pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL).forEach {
+                addCandidate(it.loadLabel(pm), it.activityInfo?.packageName)
+            }
+
+            pm.getInstalledApplications(PackageManager.MATCH_ALL).forEach {
+                addCandidate(pm.getApplicationLabel(it), it.packageName)
+            }
+
+            val rows = apps.entries
+                .map { it.value to it.key }
                 .sortedBy { it.first.lowercase() }
+
             runOnUiThread {
-                allLaunchableApps = apps
+                allLaunchableApps = rows
                 filterGamerApps("")
             }
         }
@@ -320,7 +347,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val rows = filteredLaunchableApps.map { (label, pkg) ->
-            val picked = if (pkg == selectedGamerPackage) " ✅" else ""
+            val picked = if (selectedGamerPackages.contains(pkg)) " ✅" else ""
             "$label ($pkg)$picked"
         }
         gamerAppsAdapter.clear()
@@ -540,7 +567,7 @@ class MainActivity : ComponentActivity() {
                 .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, activeProtocol)
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
                 .putExtra(LocalVpnService.EXTRA_PERFORMANCE_PROFILE, activeProfile)
-                .putExtra(LocalVpnService.EXTRA_GAMER_PACKAGE, AppSettings.getGamerTargetPackage(this))
+                .putExtra(LocalVpnService.EXTRA_GAMER_PACKAGE, AppSettings.getGamerTargetPackages(this).firstOrNull().orEmpty())
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

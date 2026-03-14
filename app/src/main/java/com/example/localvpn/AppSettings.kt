@@ -12,6 +12,7 @@ object AppSettings {
     private const val KEY_MUX_PROTOCOL = "mux_protocol"
     private const val KEY_PERFORMANCE_PROFILE = "performance_profile"
     private const val KEY_GAMER_TARGET_PACKAGE = "gamer_target_package"
+    private const val KEY_GAMER_TARGET_PACKAGES = "gamer_target_packages"
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
@@ -46,14 +47,16 @@ object AppSettings {
             ?.trim()
             .orEmpty()
         return when (value.lowercase()) {
-            "system", "gvisor", "mixed" -> value.lowercase()
+            "system", "gvisor" -> value.lowercase()
+            "mixed" -> "system"
             else -> DEFAULT_TUN_STACK
         }
     }
 
     fun setTunStack(context: Context, stack: String) {
         val normalized = when (stack.trim().lowercase()) {
-            "system", "gvisor", "mixed" -> stack.trim().lowercase()
+            "system", "gvisor" -> stack.trim().lowercase()
+            "mixed" -> "system"
             else -> DEFAULT_TUN_STACK
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -163,10 +166,35 @@ object AppSettings {
             .orEmpty()
     }
 
+    fun getGamerTargetPackages(context: Context): Set<String> {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getStringSet(KEY_GAMER_TARGET_PACKAGES, null)
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            .orEmpty()
+        if (raw.isNotEmpty()) return raw
+
+        val legacySingle = getGamerTargetPackage(context)
+        return if (legacySingle.isBlank()) emptySet() else setOf(legacySingle)
+    }
+
     fun setGamerTargetPackage(context: Context, packageName: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_GAMER_TARGET_PACKAGE, packageName.trim())
+            .apply()
+    }
+
+    fun setGamerTargetPackages(context: Context, packageNames: Set<String>) {
+        val normalized = packageNames
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_GAMER_TARGET_PACKAGES, normalized)
+            .putString(KEY_GAMER_TARGET_PACKAGE, normalized.firstOrNull().orEmpty())
             .apply()
     }
 

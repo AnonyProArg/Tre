@@ -206,6 +206,130 @@
                 android:dividerHeight="1dp" />
         </LinearLayout>
 
+
+        <LinearLayout
+            android:id="@+id/customTunnelSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/custom_tunnel_title"
+                android:textColor="#D1D5DB"
+                android:textStyle="bold" />
+
+            <Switch
+                android:id="@+id/customTunnelEnableSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/custom_tunnel_enable"
+                android:textColor="#E5E7EB"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/customTunnelServerInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:hint="@string/custom_tunnel_server_hint"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <EditText
+                android:id="@+id/customTunnelPortInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:hint="@string/custom_tunnel_port_hint"
+                android:inputType="number"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <EditText
+                android:id="@+id/customTunnelUuidInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:hint="@string/custom_tunnel_uuid_hint"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <EditText
+                android:id="@+id/customTunnelSniInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:hint="@string/custom_tunnel_sni_hint"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <EditText
+                android:id="@+id/customTunnelPayload1Input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:gravity="top|start"
+                android:hint="@string/custom_tunnel_payload1_hint"
+                android:minLines="2"
+                android:padding="10dp"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <EditText
+                android:id="@+id/customTunnelPayload2Input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:gravity="top|start"
+                android:hint="@string/custom_tunnel_payload2_hint"
+                android:minLines="2"
+                android:padding="10dp"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <EditText
+                android:id="@+id/customTunnelProxyPortInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_ghost"
+                android:hint="@string/custom_tunnel_proxy_port_hint"
+                android:inputType="number"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="#E5E7EB"
+                android:textColorHint="#6B7280" />
+
+            <TextView
+                android:id="@+id/customTunnelLogLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/log_surface"
+                android:padding="8dp"
+                android:text="@string/custom_tunnel_log_idle"
+                android:textColor="#9CA3AF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
         <Button
             android:id="@+id/startVpnButton"
             android:layout_width="match_parent"

@@ -17,6 +17,14 @@ object AppSettings {
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
     private const val KEY_SERVER_LIST = "server_list"
+    private const val KEY_CUSTOM_TUNNEL_ENABLED = "custom_tunnel_enabled"
+    private const val KEY_CUSTOM_TUNNEL_SERVER = "custom_tunnel_server"
+    private const val KEY_CUSTOM_TUNNEL_PORT = "custom_tunnel_port"
+    private const val KEY_CUSTOM_TUNNEL_UUID = "custom_tunnel_uuid"
+    private const val KEY_CUSTOM_TUNNEL_SNI = "custom_tunnel_sni"
+    private const val KEY_CUSTOM_TUNNEL_PAYLOAD_1 = "custom_tunnel_payload_1"
+    private const val KEY_CUSTOM_TUNNEL_PAYLOAD_2 = "custom_tunnel_payload_2"
+    private const val KEY_CUSTOM_TUNNEL_PROXY_PORT = "custom_tunnel_proxy_port"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 5000
@@ -24,6 +32,8 @@ object AppSettings {
     private const val DEFAULT_CUSTOM_MUX_MAX_STREAMS = 5000
     private const val DEFAULT_MUX_PROTOCOL = "smux"
     private const val DEFAULT_PERFORMANCE_PROFILE = "normal"
+    private const val DEFAULT_CUSTOM_TUNNEL_PORT = 443
+    private const val DEFAULT_CUSTOM_TUNNEL_PROXY_PORT = 1080
 
     fun getTunnelDomain(context: Context): String {
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -134,14 +144,14 @@ object AppSettings {
             ?.lowercase()
             .orEmpty()
         return when (value) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> value
+            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_tunnel" -> value
             else -> DEFAULT_PERFORMANCE_PROFILE
         }
     }
 
     fun setPerformanceProfile(context: Context, profile: String) {
         val normalized = when (profile.trim().lowercase()) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> profile.trim().lowercase()
+            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_tunnel" -> profile.trim().lowercase()
             else -> DEFAULT_PERFORMANCE_PROFILE
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -198,6 +208,35 @@ object AppSettings {
             .apply()
     }
 
+
+    fun getCustomTunnelConfig(context: Context): CustomTunnelConfig {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return CustomTunnelConfig(
+            enabled = prefs.getBoolean(KEY_CUSTOM_TUNNEL_ENABLED, false),
+            server = prefs.getString(KEY_CUSTOM_TUNNEL_SERVER, "")?.trim().orEmpty(),
+            port = prefs.getInt(KEY_CUSTOM_TUNNEL_PORT, DEFAULT_CUSTOM_TUNNEL_PORT).coerceIn(1, 65535),
+            uuid = prefs.getString(KEY_CUSTOM_TUNNEL_UUID, "")?.trim().orEmpty(),
+            sni = prefs.getString(KEY_CUSTOM_TUNNEL_SNI, "")?.trim().orEmpty(),
+            payload1 = prefs.getString(KEY_CUSTOM_TUNNEL_PAYLOAD_1, "")?.trim().orEmpty(),
+            payload2 = prefs.getString(KEY_CUSTOM_TUNNEL_PAYLOAD_2, "")?.trim().orEmpty(),
+            proxyPort = prefs.getInt(KEY_CUSTOM_TUNNEL_PROXY_PORT, DEFAULT_CUSTOM_TUNNEL_PROXY_PORT).coerceIn(1, 65535)
+        )
+    }
+
+    fun setCustomTunnelConfig(context: Context, config: CustomTunnelConfig) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_CUSTOM_TUNNEL_ENABLED, config.enabled)
+            .putString(KEY_CUSTOM_TUNNEL_SERVER, config.server.trim())
+            .putInt(KEY_CUSTOM_TUNNEL_PORT, config.port.coerceIn(1, 65535))
+            .putString(KEY_CUSTOM_TUNNEL_UUID, config.uuid.trim())
+            .putString(KEY_CUSTOM_TUNNEL_SNI, config.sni.trim())
+            .putString(KEY_CUSTOM_TUNNEL_PAYLOAD_1, config.payload1)
+            .putString(KEY_CUSTOM_TUNNEL_PAYLOAD_2, config.payload2)
+            .putInt(KEY_CUSTOM_TUNNEL_PROXY_PORT, config.proxyPort.coerceIn(1, 65535))
+            .apply()
+    }
+
     fun isVpnActive(context: Context): Boolean {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_VPN_ACTIVE, false)
     }
@@ -233,6 +272,18 @@ object AppSettings {
             .putLong(KEY_ACCOUNT_EXPIRE_EPOCH_DAY, epochDay)
             .apply()
     }
+
+
+    data class CustomTunnelConfig(
+        val enabled: Boolean,
+        val server: String,
+        val port: Int,
+        val uuid: String,
+        val sni: String,
+        val payload1: String,
+        val payload2: String,
+        val proxyPort: Int
+    )
 
     data class SavedServer(val host: String, val region: String, val status: String)
 

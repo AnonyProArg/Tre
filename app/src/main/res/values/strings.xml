@@ -8,6 +8,17 @@
     <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
     <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
     <string name="gamer_unselected_app">App gamer quitada: %1$s</string>
+    <string name="custom_tunnel_title">Custom Tunnel (avanzado)</string>
+    <string name="custom_tunnel_enable">Habilitar enrutamiento por túnel propio</string>
+    <string name="custom_tunnel_server_hint">Servidor VLESS (host o IP)</string>
+    <string name="custom_tunnel_port_hint">Puerto servidor (ej. 443)</string>
+    <string name="custom_tunnel_uuid_hint">UUID VLESS</string>
+    <string name="custom_tunnel_sni_hint">SNI / Server Name (opcional)</string>
+    <string name="custom_tunnel_payload1_hint">Payload 1</string>
+    <string name="custom_tunnel_payload2_hint">Payload 2</string>
+    <string name="custom_tunnel_proxy_port_hint">Puerto proxy local (logs/diagnóstico)</string>
+    <string name="custom_tunnel_log_idle">Log custom tunnel: sin actividad</string>
+    <string name="custom_tunnel_invalid">Completa servidor, puerto y UUID para Custom Tunnel</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>

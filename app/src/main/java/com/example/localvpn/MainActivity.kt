@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.content.pm.PackageManager
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Switch
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
@@ -47,6 +48,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var gamerSection: LinearLayout
     private lateinit var gamerSearchInput: EditText
     private lateinit var gamerAppsList: ListView
+    private lateinit var customTunnelSection: LinearLayout
+    private lateinit var customTunnelEnableSwitch: Switch
+    private lateinit var customTunnelServerInput: EditText
+    private lateinit var customTunnelPortInput: EditText
+    private lateinit var customTunnelUuidInput: EditText
+    private lateinit var customTunnelSniInput: EditText
+    private lateinit var customTunnelPayload1Input: EditText
+    private lateinit var customTunnelPayload2Input: EditText
+    private lateinit var customTunnelProxyPortInput: EditText
+    private lateinit var customTunnelLogLabel: TextView
     private lateinit var toggleVpnButton: Button
     private lateinit var batteryButton: Button
     private lateinit var shareNetButton: Button
@@ -86,6 +97,16 @@ class MainActivity : ComponentActivity() {
         gamerSection = findViewById(R.id.gamerSection)
         gamerSearchInput = findViewById(R.id.gamerSearchInput)
         gamerAppsList = findViewById(R.id.gamerAppsList)
+        customTunnelSection = findViewById(R.id.customTunnelSection)
+        customTunnelEnableSwitch = findViewById(R.id.customTunnelEnableSwitch)
+        customTunnelServerInput = findViewById(R.id.customTunnelServerInput)
+        customTunnelPortInput = findViewById(R.id.customTunnelPortInput)
+        customTunnelUuidInput = findViewById(R.id.customTunnelUuidInput)
+        customTunnelSniInput = findViewById(R.id.customTunnelSniInput)
+        customTunnelPayload1Input = findViewById(R.id.customTunnelPayload1Input)
+        customTunnelPayload2Input = findViewById(R.id.customTunnelPayload2Input)
+        customTunnelProxyPortInput = findViewById(R.id.customTunnelProxyPortInput)
+        customTunnelLogLabel = findViewById(R.id.customTunnelLogLabel)
         toggleVpnButton = findViewById(R.id.startVpnButton)
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
@@ -95,8 +116,8 @@ class MainActivity : ComponentActivity() {
         stackAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         tunStackSpinner.adapter = stackAdapter
 
-        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom")
-        val profileLabels = listOf("Gama baja", "Ahorro batería", "Normal", "Ultra", "Gamer", "Personalizado")
+        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom", "custom_tunnel")
+        val profileLabels = listOf("Gama baja", "Ahorro batería", "Normal", "Ultra", "Gamer", "Personalizado", "Custom Tunnel")
         val profileAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, profileLabels)
         profileAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         profileSpinner.adapter = profileAdapter
@@ -118,6 +139,16 @@ class MainActivity : ComponentActivity() {
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
         customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
         selectedGamerPackages = AppSettings.getGamerTargetPackages(this).toMutableSet()
+        val customTunnel = AppSettings.getCustomTunnelConfig(this)
+        customTunnelEnableSwitch.isChecked = customTunnel.enabled
+        customTunnelServerInput.setText(customTunnel.server)
+        customTunnelPortInput.setText(customTunnel.port.toString())
+        customTunnelUuidInput.setText(customTunnel.uuid)
+        customTunnelSniInput.setText(customTunnel.sni)
+        customTunnelPayload1Input.setText(customTunnel.payload1)
+        customTunnelPayload2Input.setText(customTunnel.payload2)
+        customTunnelProxyPortInput.setText(customTunnel.proxyPort.toString())
+        customTunnelLogLabel.text = getString(R.string.custom_tunnel_log_idle)
         setupGamerAppsUi()
         renderProfileUi(savedProfile)
 
@@ -165,6 +196,16 @@ class MainActivity : ComponentActivity() {
         customStreamsInput.doAfterTextChanged {
             saveConfigFromInputs(showToast = false)
         }
+        customTunnelEnableSwitch.setOnCheckedChangeListener { _, _ ->
+            saveConfigFromInputs(showToast = false)
+        }
+        customTunnelServerInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customTunnelPortInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customTunnelUuidInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customTunnelSniInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customTunnelPayload1Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customTunnelPayload2Input.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
+        customTunnelProxyPortInput.doAfterTextChanged { saveConfigFromInputs(showToast = false) }
         gamerSearchInput.doAfterTextChanged {
             filterGamerApps(it?.toString().orEmpty())
         }
@@ -234,7 +275,7 @@ class MainActivity : ComponentActivity() {
 
     private fun saveConfigFromInputs(showToast: Boolean): Boolean {
         val stack = tunStackSpinner.selectedItem?.toString().orEmpty()
-        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom")
+        val profileValues = listOf("low_end", "battery", "normal", "ultra", "gamer", "custom", "custom_tunnel")
         val selectedProfile = profileValues.getOrElse(profileSpinner.selectedItemPosition.coerceAtLeast(0)) { "normal" }
         val muxProtocol = muxProtocolSpinner.selectedItem?.toString().orEmpty()
 
@@ -257,6 +298,27 @@ class MainActivity : ComponentActivity() {
         }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
         if (selectedProfile == "gamer") AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
+
+        val customConfig = AppSettings.CustomTunnelConfig(
+            enabled = customTunnelEnableSwitch.isChecked,
+            server = customTunnelServerInput.text.toString(),
+            port = customTunnelPortInput.text.toString().toIntOrNull() ?: 443,
+            uuid = customTunnelUuidInput.text.toString(),
+            sni = customTunnelSniInput.text.toString(),
+            payload1 = customTunnelPayload1Input.text.toString(),
+            payload2 = customTunnelPayload2Input.text.toString(),
+            proxyPort = customTunnelProxyPortInput.text.toString().toIntOrNull() ?: 1080
+        )
+        AppSettings.setCustomTunnelConfig(this, customConfig)
+
+        if (selectedProfile == "custom_tunnel" && customConfig.enabled && (customConfig.server.isBlank() || customConfig.uuid.isBlank())) {
+            if (showToast) Toast.makeText(this, getString(R.string.custom_tunnel_invalid), Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        val customLog = "Custom Tunnel: ${if (customConfig.enabled) "ON" else "OFF"} | ${customConfig.server.ifBlank { "sin servidor" }}:${customConfig.port}"
+        customTunnelLogLabel.text = customLog
+
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
@@ -288,6 +350,11 @@ class MainActivity : ComponentActivity() {
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 15000)
             }
+            "custom_tunnel" -> {
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
+                muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
+                bindMuxStreamsOptions("smux", 2000)
+            }
             else -> {
                 // custom: mantiene selección actual
             }
@@ -297,9 +364,11 @@ class MainActivity : ComponentActivity() {
     private fun renderProfileUi(profile: String) {
         val isCustom = profile == "custom"
         val isGamer = profile == "gamer"
+        val isCustomTunnel = profile == "custom_tunnel"
         muxStreamsSpinner.visibility = if (isCustom) android.view.View.GONE else android.view.View.VISIBLE
         customStreamsInput.visibility = if (isCustom) android.view.View.VISIBLE else android.view.View.GONE
         gamerSection.visibility = if (isGamer) android.view.View.VISIBLE else android.view.View.GONE
+        customTunnelSection.visibility = if (isCustomTunnel) android.view.View.VISIBLE else android.view.View.GONE
     }
 
     private fun setupGamerAppsUi() {
@@ -324,6 +393,11 @@ class MainActivity : ComponentActivity() {
 
             pm.getInstalledApplications(PackageManager.MATCH_ALL).forEach {
                 addCandidate(pm.getApplicationLabel(it), it.packageName)
+            }
+            pm.getInstalledPackages(PackageManager.MATCH_ALL).forEach {
+                val appInfo = it.applicationInfo
+                val label = if (appInfo != null) pm.getApplicationLabel(appInfo) else it.packageName
+                addCandidate(label, it.packageName)
             }
 
             val rows = apps.entries
@@ -464,7 +538,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun authenticateThenStart() {
-        if (!saveConfigFromInputs(showToast = false)) return
+        if (!saveConfigFromInputs(showToast = true)) return
 
         val tunnelDomain = AppSettings.getTunnelDomain(this)
         if (tunnelDomain.isBlank()) {

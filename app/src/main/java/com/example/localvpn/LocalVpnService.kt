@@ -35,6 +35,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var isStopping = false
     private var gamerPackages: Set<String> = emptySet()
     private var performanceProfile: String = "normal"
+    private var customTunnelConfig: AppSettings.CustomTunnelConfig = AppSettings.CustomTunnelConfig(false, "", 443, "", "", "", "", 1080)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -65,6 +66,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val tunStack = intentTunStackOrSettings()
             val muxProtocol = intentMuxProtocolOrSettings()
             performanceProfile = intentProfileOrSettings()
+            customTunnelConfig = AppSettings.getCustomTunnelConfig(this)
             gamerPackages = intentGamerPackagesOrSettings()
             val smuxMaxStreams = intentMuxStreamsOrSettings(muxProtocol)
 
@@ -76,20 +78,29 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val gamerPackagesLabel = if (gamerPackages.isEmpty()) "(ninguna)" else gamerPackages.joinToString(",")
             emitLog("Apps gamer sesión: $gamerPackagesLabel")
             emitLog("MUX max_streams sesión: $smuxMaxStreams")
+            if (performanceProfile == "custom_tunnel") {
+                emitLog("Custom tunnel enabled=${customTunnelConfig.enabled} server=${customTunnelConfig.server}:${customTunnelConfig.port}")
+                if (customTunnelConfig.payload1.isNotBlank()) emitLog("Payload1 enviado(config): ${customTunnelConfig.payload1.take(80)}")
+                if (customTunnelConfig.payload2.isNotBlank()) emitLog("Payload2 enviado(config): ${customTunnelConfig.payload2.take(80)}")
+            }
 
-            proxyHandle = BlackTunnelClient.startProxy(
-                hwid = hwid,
-                tunnelDomain = tunnelDomain,
-                protectSocket = { socket -> protect(socket) },
-                logger = {}
-            )
+            proxyHandle = if (performanceProfile == "custom_tunnel" && customTunnelConfig.enabled) {
+                null
+            } else {
+                BlackTunnelClient.startProxy(
+                    hwid = hwid,
+                    tunnelDomain = tunnelDomain,
+                    protectSocket = { socket -> protect(socket) },
+                    logger = {}
+                )
+            }
 
             setupLibboxOnce()
 
             commandServer = CommandServer(this, this)
             val overrideOptions = OverrideOptions()
             disableClashIfPresent(overrideOptions)
-            commandServer?.startOrReloadService(buildClientConfigJson(tunnelDomain, tunStack, muxProtocol, smuxMaxStreams), overrideOptions)
+            commandServer?.startOrReloadService(buildClientConfigJson(tunnelDomain, tunStack, muxProtocol, smuxMaxStreams, customTunnelConfig), overrideOptions)
             attachInterfaceProtectorIfAvailable(commandServer)
             libboxServiceStarted = true
 
@@ -133,7 +144,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun intentProfileOrSettings(): String {
         val fromIntent = lastStartIntent?.getStringExtra(EXTRA_PERFORMANCE_PROFILE)?.trim().orEmpty().lowercase()
         return when (fromIntent) {
-            "battery", "low_end", "normal", "ultra", "gamer", "custom" -> fromIntent
+            "battery", "low_end", "normal", "ultra", "gamer", "custom", "custom_tunnel" -> fromIntent
             else -> AppSettings.getPerformanceProfile(this)
         }
     }
@@ -425,7 +436,19 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
     }
 
-    private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, muxProtocol: String, smuxMaxStreams: Int): String {
+    private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, muxProtocol: String, smuxMaxStreams: Int, custom: AppSettings.CustomTunnelConfig): String {
+        val useCustomTunnel = performanceProfile == "custom_tunnel" && custom.enabled && custom.server.isNotBlank() && custom.uuid.isNotBlank()
+        val outboundServer = if (useCustomTunnel) custom.server else "127.0.0.1"
+        val outboundPort = if (useCustomTunnel) custom.port else BlackTunnelClient.LOCAL_PORT
+        val outboundUuid = if (useCustomTunnel) custom.uuid else "11111111-1111-1111-1111-111111111111"
+        val tlsBlock = if (useCustomTunnel && custom.sni.isNotBlank()) {
+            """,
+                  "tls": {
+                    "enabled": true,
+                    "server_name": "${custom.sni}"
+                  }"""
+        } else ""
+
         return """
             {
               "log": { "level": "error", "timestamp": false },
@@ -445,9 +468,9 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 {
                   "type": "vless",
                   "tag": "proxy",
-                  "server": "127.0.0.1",
-                  "server_port": ${BlackTunnelClient.LOCAL_PORT},
-                  "uuid": "11111111-1111-1111-1111-111111111111",
+                  "server": "${outboundServer}",
+                  "server_port": ${outboundPort},
+                  "uuid": "${outboundUuid}",
                   "flow": "",
                   "multiplex": {
                     "enabled": true,
@@ -455,7 +478,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     "max_streams": ${smuxMaxStreams}
                   },
                   "packet_encoding": "xudp",
-                  "network_strategy": "default"
+                  "network_strategy": "default"${tlsBlock}
                 },
                 { "type": "direct", "tag": "direct" },
                 { "type": "block",  "tag": "block" }

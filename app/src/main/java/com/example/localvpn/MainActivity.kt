@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.content.pm.PackageManager
 import android.widget.Spinner
 import android.widget.TextView
+import android.content.pm.ApplicationInfo
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var tunStackSpinner: Spinner
     private lateinit var profileSpinner: Spinner
     private lateinit var muxProtocolSpinner: Spinner
+    private lateinit var cdnModeSpinner: Spinner
     private lateinit var muxStreamsSpinner: Spinner
     private lateinit var customStreamsInput: EditText
     private lateinit var gamerSection: LinearLayout
@@ -65,7 +67,7 @@ class MainActivity : ComponentActivity() {
     private var allLaunchableApps: List<Pair<String, String>> = emptyList()
     private var filteredLaunchableApps: List<Pair<String, String>> = emptyList()
     private lateinit var gamerAppsAdapter: ArrayAdapter<String>
-    private var selectedGamerPackage: String = ""
+    private var selectedGamerPackages: MutableSet<String> = linkedSetOf()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -81,6 +83,7 @@ class MainActivity : ComponentActivity() {
         tunStackSpinner = findViewById(R.id.tunStackSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
         muxProtocolSpinner = findViewById(R.id.muxProtocolSpinner)
+        cdnModeSpinner = findViewById(R.id.cdnModeSpinner)
         muxStreamsSpinner = findViewById(R.id.muxStreamsSpinner)
         customStreamsInput = findViewById(R.id.customStreamsInput)
         gamerSection = findViewById(R.id.gamerSection)
@@ -90,7 +93,7 @@ class MainActivity : ComponentActivity() {
         batteryButton = findViewById(R.id.batteryButton)
         shareNetButton = findViewById(R.id.shareProxyButton)
 
-        val stackValues = listOf("gvisor", "system", "mixed")
+        val stackValues = listOf("gvisor", "system")
         val stackAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, stackValues)
         stackAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         tunStackSpinner.adapter = stackAdapter
@@ -106,6 +109,11 @@ class MainActivity : ComponentActivity() {
         muxAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         muxProtocolSpinner.adapter = muxAdapter
 
+        val cdnModes = listOf("cloudfront", "cloudflare")
+        val cdnAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, cdnModes)
+        cdnAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
+        cdnModeSpinner.adapter = cdnAdapter
+
         hwid = BlackTunnelClient.getOrCreateHwid(noBackupFilesDir)
         hwidLabel.text = "HWID: $hwid"
 
@@ -117,7 +125,9 @@ class MainActivity : ComponentActivity() {
         muxProtocolSpinner.setSelection(muxValues.indexOf(savedMux).coerceAtLeast(0))
         bindMuxStreamsOptions(savedMux, AppSettings.getMuxMaxStreams(this, savedMux))
         customStreamsInput.setText(AppSettings.getCustomMuxMaxStreams(this).toString())
-        selectedGamerPackage = AppSettings.getGamerTargetPackage(this)
+        selectedGamerPackages = AppSettings.getGamerTargetPackages(this).toMutableSet()
+        val savedCdnMode = AppSettings.getCdnMode(this)
+        cdnModeSpinner.setSelection(cdnModes.indexOf(savedCdnMode).coerceAtLeast(0))
         setupGamerAppsUi()
         renderProfileUi(savedProfile)
 
@@ -154,6 +164,16 @@ class MainActivity : ComponentActivity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
         }
 
+        cdnModeSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                val selectedMode = cdnModes.getOrElse(position.coerceAtLeast(0)) { "cloudfront" }
+                AppSettings.setCdnMode(this@MainActivity, selectedMode)
+                loadServersFromStorage(AppSettings.getTunnelDomainForMode(this@MainActivity, selectedMode), selectedMode)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
         muxStreamsSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
                 saveConfigFromInputs(showToast = false)
@@ -170,8 +190,8 @@ class MainActivity : ComponentActivity() {
         }
         gamerAppsList.setOnItemClickListener { _, _, position, _ ->
             val selected = filteredLaunchableApps.getOrNull(position) ?: return@setOnItemClickListener
-            selectedGamerPackage = selected.second
-            AppSettings.setGamerTargetPackage(this, selected.second)
+            if (selectedGamerPackages.contains(selected.second)) selectedGamerPackages.remove(selected.second) else selectedGamerPackages.add(selected.second)
+            AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
             filterGamerApps(gamerSearchInput.text.toString())
             saveConfigFromInputs(showToast = false)
             Toast.makeText(this, getString(R.string.gamer_selected_app, selected.first), Toast.LENGTH_SHORT).show()
@@ -244,7 +264,7 @@ class MainActivity : ComponentActivity() {
             AppSettings.setCustomMuxMaxStreams(this, muxStreams)
         }
         AppSettings.setMuxMaxStreams(this, muxProtocol, muxStreams)
-        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackage(this, selectedGamerPackage)
+        if (selectedProfile == "gamer") AppSettings.setGamerTargetPackages(this, selectedGamerPackages)
         if (showToast) Toast.makeText(this, getString(R.string.config_saved), Toast.LENGTH_SHORT).show()
         return true
     }
@@ -252,27 +272,27 @@ class MainActivity : ComponentActivity() {
     private fun applyProfilePreset(profile: String, muxValues: List<String>) {
         when (profile) {
             "low_end" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
                 bindMuxStreamsOptions("h2mux", 700)
             }
             "battery" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("gvisor"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("h2mux").coerceAtLeast(0))
                 bindMuxStreamsOptions("h2mux", 1000)
             }
             "normal" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("gvisor"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("gvisor"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 5000)
             }
             "ultra" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("mixed"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("gvisor"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 12000)
             }
             "gamer" -> {
-                tunStackSpinner.setSelection(listOf("gvisor", "system", "mixed").indexOf("system"))
+                tunStackSpinner.setSelection(listOf("gvisor", "system").indexOf("system"))
                 muxProtocolSpinner.setSelection(muxValues.indexOf("smux").coerceAtLeast(0))
                 bindMuxStreamsOptions("smux", 15000)
             }
@@ -296,11 +316,20 @@ class MainActivity : ComponentActivity() {
         thread(name = "apps-loader") {
             val pm = packageManager
             val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val apps = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+            val launchable = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
                 .map {
                     val label = it.loadLabel(pm).toString().ifBlank { it.activityInfo.packageName }
                     label to it.activityInfo.packageName
                 }
+            val installed = pm.getInstalledApplications(PackageManager.MATCH_ALL)
+                .asSequence()
+                .filter { app -> app.packageName != packageName }
+                .filter { app -> (app.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || launchable.any { it.second == app.packageName } }
+                .map { app ->
+                    val label = pm.getApplicationLabel(app).toString().ifBlank { app.packageName }
+                    label to app.packageName
+                }
+            val apps = (launchable + installed)
                 .distinctBy { it.second }
                 .sortedBy { it.first.lowercase() }
             runOnUiThread {
@@ -320,7 +349,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val rows = filteredLaunchableApps.map { (label, pkg) ->
-            val picked = if (pkg == selectedGamerPackage) " ✅" else ""
+            val picked = if (selectedGamerPackages.contains(pkg)) " ✅" else ""
             "$label ($pkg)$picked"
         }
         gamerAppsAdapter.clear()
@@ -376,7 +405,8 @@ class MainActivity : ComponentActivity() {
     private fun refreshServersFromCentral() {
         Toast.makeText(this, getString(R.string.servers_updating), Toast.LENGTH_SHORT).show()
         thread(name = "servers-refresh") {
-            val servers = BlackTunnelClient.fetchServers()
+            val mode = AppSettings.getCdnMode(this)
+            val servers = BlackTunnelClient.fetchServers(mode)
             runOnUiThread {
                 if (servers.isEmpty()) {
                     Toast.makeText(this, getString(R.string.servers_update_failed), Toast.LENGTH_LONG).show()
@@ -384,18 +414,19 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val mapped = servers.map { AppSettings.SavedServer(it.host, it.region, it.status) }
-                AppSettings.setServerList(this, mapped)
-                val currentHost = AppSettings.getTunnelDomain(this)
+                val mode = AppSettings.getCdnMode(this)
+                AppSettings.setServerListForMode(this, mode, mapped)
+                val currentHost = AppSettings.getTunnelDomainForMode(this, mode)
                 val selected = mapped.firstOrNull { it.host == currentHost }?.host ?: mapped.first().host
-                AppSettings.setTunnelDomain(this, selected)
-                loadServersFromStorage(selected)
+                AppSettings.setTunnelDomainForMode(this, mode, selected)
+                loadServersFromStorage(selected, mode)
                 Toast.makeText(this, getString(R.string.servers_updated, mapped.size), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun loadServersFromStorage(preferredHost: String? = null) {
-        serverList = AppSettings.getServerList(this)
+    private fun loadServersFromStorage(preferredHost: String? = null, mode: String = AppSettings.getCdnMode(this)) {
+        serverList = AppSettings.getServerListForMode(this, mode)
         if (serverList.isEmpty()) {
             val emptyAdapter = ArrayAdapter(this, R.layout.spinner_item_selected, listOf(getString(R.string.no_servers)))
             emptyAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
@@ -410,7 +441,7 @@ class MainActivity : ComponentActivity() {
         serverAdapter.setDropDownViewResource(R.layout.spinner_item_dropdown)
         serverSpinner.adapter = serverAdapter
 
-        val hostToSelect = preferredHost ?: AppSettings.getTunnelDomain(this).ifBlank { serverList.first().host }
+        val hostToSelect = preferredHost ?: AppSettings.getTunnelDomainForMode(this, mode).ifBlank { serverList.first().host }
         val idx = serverList.indexOfFirst { it.host == hostToSelect }.coerceAtLeast(0)
         serverSpinner.setSelection(idx)
         onServerSelected(idx)
@@ -426,7 +457,7 @@ class MainActivity : ComponentActivity() {
 
     private fun onServerSelected(position: Int) {
         val selected = serverList.getOrNull(position) ?: return
-        AppSettings.setTunnelDomain(this, selected.host)
+        AppSettings.setTunnelDomainForMode(this, AppSettings.getCdnMode(this), selected.host)
         lastAuthDomain = selected.host
         serverStateLabel.text = when (selected.status.lowercase()) {
             "online" -> "🟢 ${getString(R.string.server_online)}"
@@ -439,7 +470,8 @@ class MainActivity : ComponentActivity() {
     private fun authenticateThenStart() {
         if (!saveConfigFromInputs(showToast = false)) return
 
-        val tunnelDomain = AppSettings.getTunnelDomain(this)
+        val cdnMode = AppSettings.getCdnMode(this)
+        val tunnelDomain = AppSettings.getTunnelDomainForMode(this, cdnMode)
         if (tunnelDomain.isBlank()) {
             Toast.makeText(this, getString(R.string.need_update_servers), Toast.LENGTH_LONG).show()
             return
@@ -455,7 +487,7 @@ class MainActivity : ComponentActivity() {
 
         thread(name = "auth-thread") {
             try {
-                val info = BlackTunnelClient.auth(hwid, tunnelDomain)
+                val info = BlackTunnelClient.auth(hwid, tunnelDomain, cdnMode)
                 runOnUiThread {
                     val summary = formatAccountSummary(info)
                     accountLabel.text = summary
@@ -536,11 +568,12 @@ class MainActivity : ComponentActivity() {
                 .setAction(LocalVpnService.ACTION_START)
                 .putExtra(LocalVpnService.EXTRA_HWID, hwid)
                 .putExtra(LocalVpnService.EXTRA_TUNNEL_DOMAIN, lastAuthDomain)
+                .putExtra(LocalVpnService.EXTRA_CDN_MODE, AppSettings.getCdnMode(this))
                 .putExtra(LocalVpnService.EXTRA_TUN_STACK, AppSettings.getTunStack(this))
                 .putExtra(LocalVpnService.EXTRA_MUX_PROTOCOL, activeProtocol)
                 .putExtra(LocalVpnService.EXTRA_SMUX_MAX_STREAMS, activeStreams)
                 .putExtra(LocalVpnService.EXTRA_PERFORMANCE_PROFILE, activeProfile)
-                .putExtra(LocalVpnService.EXTRA_GAMER_PACKAGE, AppSettings.getGamerTargetPackage(this))
+                .putStringArrayListExtra(LocalVpnService.EXTRA_GAMER_PACKAGES, ArrayList(AppSettings.getGamerTargetPackages(this)))
 
             startService(serviceIntent)
             AppSettings.setVpnActive(this, true)

@@ -12,10 +12,12 @@ object AppSettings {
     private const val KEY_MUX_PROTOCOL = "mux_protocol"
     private const val KEY_PERFORMANCE_PROFILE = "performance_profile"
     private const val KEY_GAMER_TARGET_PACKAGE = "gamer_target_package"
+    private const val KEY_GAMER_TARGET_PACKAGES = "gamer_target_packages"
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
     private const val KEY_SERVER_LIST = "server_list"
+    private const val KEY_CDN_MODE = "cdn_mode"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 5000
@@ -23,20 +25,56 @@ object AppSettings {
     private const val DEFAULT_CUSTOM_MUX_MAX_STREAMS = 5000
     private const val DEFAULT_MUX_PROTOCOL = "smux"
     private const val DEFAULT_PERFORMANCE_PROFILE = "normal"
+    private const val DEFAULT_CDN_MODE = "cloudfront"
+
+    private fun normalizeCdnMode(value: String): String {
+        return when (value.trim().lowercase()) {
+            "cloudfront", "cloudflare" -> value.trim().lowercase()
+            else -> DEFAULT_CDN_MODE
+        }
+    }
+
+    private fun tunnelDomainKeyFor(mode: String): String = "${KEY_TUNNEL_DOMAIN}_${normalizeCdnMode(mode)}"
+    private fun serverListKeyFor(mode: String): String = "${KEY_SERVER_LIST}_${normalizeCdnMode(mode)}"
+
+    fun getCdnMode(context: Context): String {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CDN_MODE, DEFAULT_CDN_MODE)
+            ?.trim()
+            .orEmpty()
+        return normalizeCdnMode(value)
+    }
+
+    fun setCdnMode(context: Context, mode: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CDN_MODE, normalizeCdnMode(mode))
+            .apply()
+    }
 
     fun getTunnelDomain(context: Context): String {
+        val mode = getCdnMode(context)
+        return getTunnelDomainForMode(context, mode)
+    }
+
+    fun getTunnelDomainForMode(context: Context, mode: String): String {
+        val key = tunnelDomainKeyFor(mode)
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_TUNNEL_DOMAIN, "")
+            .getString(key, "")
             ?.trim()
             .orEmpty()
         if (explicit.isNotBlank()) return explicit
-        return getServerList(context).firstOrNull()?.host.orEmpty()
+        return getServerListForMode(context, mode).firstOrNull()?.host.orEmpty()
     }
 
     fun setTunnelDomain(context: Context, domain: String) {
+        setTunnelDomainForMode(context, getCdnMode(context), domain)
+    }
+
+    fun setTunnelDomainForMode(context: Context, mode: String, domain: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_TUNNEL_DOMAIN, domain.trim())
+            .putString(tunnelDomainKeyFor(mode), domain.trim())
             .apply()
     }
 
@@ -46,14 +84,14 @@ object AppSettings {
             ?.trim()
             .orEmpty()
         return when (value.lowercase()) {
-            "system", "gvisor", "mixed" -> value.lowercase()
+            "system", "gvisor" -> value.lowercase()
             else -> DEFAULT_TUN_STACK
         }
     }
 
     fun setTunStack(context: Context, stack: String) {
         val normalized = when (stack.trim().lowercase()) {
-            "system", "gvisor", "mixed" -> stack.trim().lowercase()
+            "system", "gvisor" -> stack.trim().lowercase()
             else -> DEFAULT_TUN_STACK
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -156,6 +194,32 @@ object AppSettings {
     }
 
 
+
+    fun getGamerTargetPackages(context: Context): Set<String> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_GAMER_TARGET_PACKAGES, "")
+            .orEmpty()
+        val parsed = raw.split("\n")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (parsed.isNotEmpty()) return parsed
+        val legacy = getGamerTargetPackage(context)
+        return if (legacy.isBlank()) emptySet() else setOf(legacy)
+    }
+
+    fun setGamerTargetPackages(context: Context, packages: Set<String>) {
+        val raw = packages.map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+            .joinToString("\n")
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_GAMER_TARGET_PACKAGES, raw)
+            .apply()
+    }
+
     fun getGamerTargetPackage(context: Context): String {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_GAMER_TARGET_PACKAGE, "")
@@ -209,8 +273,12 @@ object AppSettings {
     data class SavedServer(val host: String, val region: String, val status: String)
 
     fun getServerList(context: Context): List<SavedServer> {
+        return getServerListForMode(context, getCdnMode(context))
+    }
+
+    fun getServerListForMode(context: Context, mode: String): List<SavedServer> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_SERVER_LIST, "")
+            .getString(serverListKeyFor(mode), "")
             .orEmpty()
         if (raw.isBlank()) return emptyList()
         return raw.split("\n").mapNotNull { line ->
@@ -220,6 +288,10 @@ object AppSettings {
     }
 
     fun setServerList(context: Context, servers: List<SavedServer>) {
+        setServerListForMode(context, getCdnMode(context), servers)
+    }
+
+    fun setServerListForMode(context: Context, mode: String, servers: List<SavedServer>) {
         val normalized = linkedMapOf<String, SavedServer>()
         servers.forEach { s ->
             val host = s.host.trim().lowercase()
@@ -228,7 +300,7 @@ object AppSettings {
         val raw = normalized.values.joinToString("\n") { "${it.host}|${it.region}|${it.status}" }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_SERVER_LIST, raw)
+            .putString(serverListKeyFor(mode), raw)
             .apply()
     }
 }

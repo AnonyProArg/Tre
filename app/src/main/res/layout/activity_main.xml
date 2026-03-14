@@ -99,6 +99,14 @@
             android:textColor="#9CA3AF"
             android:textSize="12sp" />
 
+
+        <Spinner
+            android:id="@+id/cdnModeSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/button_ghost" />
+
         <Spinner
             android:id="@+id/profileSpinner"
             android:layout_width="match_parent"

@@ -14,6 +14,8 @@ Aplicación Android en modo pruebas para validar el flujo completo:
 gradle assembleDebug
 ```
 
+> Requisito: usar JDK 17 para evitar errores de compatibilidad durante la compilación.
+
 ## Workflow CI
 
 El workflow `.github/workflows/android-build.yml` ejecuta 2 jobs:

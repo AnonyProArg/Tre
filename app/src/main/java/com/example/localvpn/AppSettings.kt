@@ -16,6 +16,7 @@ object AppSettings {
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
     private const val KEY_SERVER_LIST = "server_list"
+    private const val KEY_CDN_PROVIDER = "cdn_provider"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 5000
@@ -23,20 +24,54 @@ object AppSettings {
     private const val DEFAULT_CUSTOM_MUX_MAX_STREAMS = 5000
     private const val DEFAULT_MUX_PROTOCOL = "smux"
     private const val DEFAULT_PERFORMANCE_PROFILE = "normal"
+    private const val DEFAULT_CDN_PROVIDER = "cloudfront"
+
+    private fun tunnelDomainKey(provider: String): String = "${KEY_TUNNEL_DOMAIN}_${normalizeCdnProvider(provider)}"
+    private fun serverListKey(provider: String): String = "${KEY_SERVER_LIST}_${normalizeCdnProvider(provider)}"
+
+    fun normalizeCdnProvider(value: String): String {
+        return when (value.trim().lowercase()) {
+            "cloudfront", "cloudflare" -> value.trim().lowercase()
+            else -> DEFAULT_CDN_PROVIDER
+        }
+    }
+
+    fun getCdnProvider(context: Context): String {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CDN_PROVIDER, DEFAULT_CDN_PROVIDER)
+            .orEmpty()
+        return normalizeCdnProvider(value)
+    }
+
+    fun setCdnProvider(context: Context, provider: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CDN_PROVIDER, normalizeCdnProvider(provider))
+            .apply()
+    }
 
     fun getTunnelDomain(context: Context): String {
+        return getTunnelDomain(context, getCdnProvider(context))
+    }
+
+    fun getTunnelDomain(context: Context, provider: String): String {
+        val key = tunnelDomainKey(provider)
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_TUNNEL_DOMAIN, "")
+            .getString(key, "")
             ?.trim()
             .orEmpty()
         if (explicit.isNotBlank()) return explicit
-        return getServerList(context).firstOrNull()?.host.orEmpty()
+        return getServerList(context, provider).firstOrNull()?.host.orEmpty()
     }
 
     fun setTunnelDomain(context: Context, domain: String) {
+        setTunnelDomain(context, getCdnProvider(context), domain)
+    }
+
+    fun setTunnelDomain(context: Context, provider: String, domain: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_TUNNEL_DOMAIN, domain.trim())
+            .putString(tunnelDomainKey(provider), domain.trim())
             .apply()
     }
 
@@ -46,14 +81,14 @@ object AppSettings {
             ?.trim()
             .orEmpty()
         return when (value.lowercase()) {
-            "system", "gvisor", "mixed" -> value.lowercase()
+            "system", "gvisor" -> value.lowercase()
             else -> DEFAULT_TUN_STACK
         }
     }
 
     fun setTunStack(context: Context, stack: String) {
         val normalized = when (stack.trim().lowercase()) {
-            "system", "gvisor", "mixed" -> stack.trim().lowercase()
+            "system", "gvisor" -> stack.trim().lowercase()
             else -> DEFAULT_TUN_STACK
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -209,8 +244,12 @@ object AppSettings {
     data class SavedServer(val host: String, val region: String, val status: String)
 
     fun getServerList(context: Context): List<SavedServer> {
+        return getServerList(context, getCdnProvider(context))
+    }
+
+    fun getServerList(context: Context, provider: String): List<SavedServer> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_SERVER_LIST, "")
+            .getString(serverListKey(provider), "")
             .orEmpty()
         if (raw.isBlank()) return emptyList()
         return raw.split("\n").mapNotNull { line ->
@@ -220,6 +259,10 @@ object AppSettings {
     }
 
     fun setServerList(context: Context, servers: List<SavedServer>) {
+        setServerList(context, getCdnProvider(context), servers)
+    }
+
+    fun setServerList(context: Context, provider: String, servers: List<SavedServer>) {
         val normalized = linkedMapOf<String, SavedServer>()
         servers.forEach { s ->
             val host = s.host.trim().lowercase()
@@ -228,7 +271,7 @@ object AppSettings {
         val raw = normalized.values.joinToString("\n") { "${it.host}|${it.region}|${it.status}" }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_SERVER_LIST, raw)
+            .putString(serverListKey(provider), raw)
             .apply()
     }
 }

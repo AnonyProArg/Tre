@@ -155,8 +155,11 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private fun intentGamerPackagesOrSettings(): Set<String> {
         val fromIntent = lastStartIntent?.getStringExtra(EXTRA_GAMER_PACKAGE)?.trim().orEmpty()
-        if (fromIntent.isNotBlank()) return setOf(fromIntent)
-        return AppSettings.getGamerTargetPackages(this)
+        val fromSettings = AppSettings.getGamerTargetPackages(this)
+        return buildSet {
+            if (fromIntent.isNotBlank()) add(fromIntent)
+            addAll(fromSettings)
+        }
     }
 
     private fun intentMuxStreamsOrSettings(muxProtocol: String): Int {
@@ -312,18 +315,28 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
 
         if (performanceProfile == "gamer") {
-            try {
-                if (gamerPackages.isNotEmpty()) {
-                    gamerPackages.forEach { packageName ->
+            var addedCount = 0
+            if (gamerPackages.isNotEmpty()) {
+                gamerPackages.forEach { packageName ->
+                    try {
+                        packageManager.getPackageInfo(packageName, 0)
                         builder.addAllowedApplication(packageName)
+                        addedCount++
+                    } catch (e: Exception) {
+                        emitLog("WARN app gamer inválida/ausente: $packageName (${e.message})")
                     }
-                    emitLog("Modo gamer activo, apps permitidas en TUN: ${gamerPackages.joinToString(",")}")
-                } else {
-                    builder.addAllowedApplication(APP_PACKAGE_NAME)
-                    emitLog("Modo gamer sin app seleccionada: túnel de usuario en espera")
                 }
-            } catch (e: Exception) {
-                emitLog("WARN no se pudo aplicar filtro gamer: ${e.message}")
+            }
+
+            if (addedCount > 0) {
+                emitLog("Modo gamer activo, apps permitidas en TUN: ${gamerPackages.joinToString(",")}")
+            } else {
+                try {
+                    builder.addAllowedApplication(APP_PACKAGE_NAME)
+                    emitLog("Modo gamer sin app válida seleccionada: túnel de usuario en espera")
+                } catch (e: Exception) {
+                    emitLog("WARN no se pudo aplicar fallback gamer: ${e.message}")
+                }
             }
         } else {
             val excludePackages = options.getExcludePackage()

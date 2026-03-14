@@ -7,6 +7,7 @@
     <string name="custom_streams_hint">Streams personalizados (1-20000)</string>
     <string name="gamer_search_hint">Buscar app para túnel gamer...</string>
     <string name="gamer_selected_app">App gamer seleccionada: %1$s</string>
+    <string name="gamer_selected_count">Apps gamer seleccionadas: %1$d</string>
     <string name="hwid_label">HWID: cargando…</string>
     <string name="account_unknown">Cuenta: sin verificar</string>
     <string name="battery_button">Quitar restricción de batería</string>

@@ -19,8 +19,10 @@ import kotlin.concurrent.thread
 
 object BlackTunnelClient {
 
-    private const val PROXY_IPV6 = "2606:4700::6812:16b7"
-    private const val PROXY_HOST = "emailmarketing.personal.com.ar"
+    private const val CLOUDFLARE_PROXY_IPV6 = "2606:4700::6812:16b7"
+    private const val CLOUDFLARE_PROXY_HOST = "emailmarketing.personal.com.ar"
+    private const val CLOUDFRONT_BAIT_HOST = "recarga.personal.com.ar"
+    private const val CLOUDFRONT_FAKE_HOST = "d36wp69rjuikpvh.cloudfront.net"
     private const val PROXY_PORT = 80
     private const val CENTRAL_HOST = "central.brawlpass.com.ar"
 
@@ -39,6 +41,14 @@ object BlackTunnelClient {
     data class ServerInfo(val host: String, val region: String, val status: String)
 
     data class TrafficSnapshot(val uplinkBytes: Long, val downlinkBytes: Long)
+
+    private data class CdnConfig(
+        val provider: String,
+        val staticIpv6: String?,
+        val payloadHosts: List<String>,
+        val dynamicResolveHosts: List<String>,
+        val cloudfrontFakeHost: String? = null
+    )
 
     class AuthException(message: String) : Exception(message)
 
@@ -74,32 +84,37 @@ object BlackTunnelClient {
         return hwid
     }
 
-    fun fetchServers(logger: ((String) -> Unit)? = null): List<ServerInfo> {
+    fun fetchServers(cdnProvider: String, logger: ((String) -> Unit)? = null): List<ServerInfo> {
+        val cdn = resolveCdnConfig(cdnProvider)
         val request = (
             "BT-SERVERS / HTTP/1.1\r\n" +
                 "Host: $CENTRAL_HOST\r\n" +
+                "X-CDN: ${cdn.provider}\r\n" +
                 "Upgrade: websocket\r\n\r\n"
             ).toByteArray()
 
         repeat(CHANNEL_CONNECT_RETRIES) { attempt ->
             // 1) Método principal: IPv6 fija + variantes de payload.
-            buildPayloadVariants().forEach { payload ->
+            buildPayloadVariants(cdn).forEach { payload ->
                 val response = connectForServers(
-                    address = InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT),
+                    address = cdn.staticIpv6?.let { InetSocketAddress(Inet6Address.getByName(it), PROXY_PORT) }
+                        ?: return@forEach,
                     p1 = payload,
                     request = request,
+                    cdnProvider = cdn.provider,
                     logger = logger
                 )
                 if (response.isNotEmpty()) return response
             }
 
             // 2) Método secundario: IPv6 dinámica por feedback + DNS.
-            resolveDynamicIpv6Candidates(CENTRAL_HOST).forEach { ip6 ->
-                buildPayloadVariants().forEach { payload ->
+            resolveDynamicIpv6Candidates(CENTRAL_HOST, cdn).forEach { ip6 ->
+                buildPayloadVariants(cdn).forEach { payload ->
                     val response = connectForServers(
                         address = InetSocketAddress(ip6, PROXY_PORT),
                         p1 = payload,
                         request = request,
+                        cdnProvider = cdn.provider,
                         logger = logger
                     )
                     if (response.isNotEmpty()) return response
@@ -114,6 +129,7 @@ object BlackTunnelClient {
                     address = InetSocketAddress(ip4, 80),
                     p1 = null,
                     request = request,
+                    cdnProvider = cdn.provider,
                     logger = logger
                 )
                 if (response.isNotEmpty()) return response
@@ -132,6 +148,7 @@ object BlackTunnelClient {
         address: InetSocketAddress,
         p1: ByteArray?,
         request: ByteArray,
+        cdnProvider: String,
         logger: ((String) -> Unit)?
     ): List<ServerInfo> {
         val socket = Socket()
@@ -151,10 +168,7 @@ object BlackTunnelClient {
             val xServers = headers["x-servers"].orEmpty()
             val parsed = if (xServers.isBlank()) emptyList() else parseServerList(xServers)
             if (parsed.isNotEmpty() && socket.inetAddress is Inet6Address) {
-                synchronized(ipv6FeedbackLock) {
-                    lastGoodIpv6Literal = socket.inetAddress.hostAddress.orEmpty()
-                    lastGoodDomainHint = CENTRAL_HOST
-                }
+                rememberGoodIpv6(socket.inetAddress.hostAddress.orEmpty(), CENTRAL_HOST, cdnProvider)
             }
             parsed
         } catch (e: Exception) {
@@ -182,9 +196,9 @@ object BlackTunnelClient {
         return result.values.toList()
     }
 
-    fun auth(hwid: String, tunnelDomain: String, logger: ((String) -> Unit)? = null): AccountInfo {
+    fun auth(hwid: String, tunnelDomain: String, cdnProvider: String, logger: ((String) -> Unit)? = null): AccountInfo {
         logger?.invoke("AUTH start dominio=$tunnelDomain hwid=$hwid")
-        val (socket, headers) = openChannel("auth", hwid, tunnelDomain, null, logger)
+        val (socket, headers) = openChannel("auth", hwid, tunnelDomain, cdnProvider, null, logger)
         closeQuietly(socket)
         if (headers.isEmpty()) throw AuthException("Sin respuesta del servidor")
 
@@ -203,14 +217,15 @@ object BlackTunnelClient {
         }
     }
 
-    fun notifyDisconnect(hwid: String, tunnelDomain: String, logger: ((String) -> Unit)? = null) {
-        val (socket, _) = openChannel("disconnect", hwid, tunnelDomain, null, logger)
+    fun notifyDisconnect(hwid: String, tunnelDomain: String, cdnProvider: String, logger: ((String) -> Unit)? = null) {
+        val (socket, _) = openChannel("disconnect", hwid, tunnelDomain, cdnProvider, null, logger)
         closeQuietly(socket)
     }
 
     fun startProxy(
         hwid: String,
         tunnelDomain: String,
+        cdnProvider: String,
         protectSocket: (Socket) -> Unit,
         logger: (String) -> Unit
     ): ProxyHandle {
@@ -237,7 +252,7 @@ object BlackTunnelClient {
                     runCatching { protectSocket(client) }
                     activeSockets.add(client)
                     thread(name = "bt-proxy-client", isDaemon = true) {
-                        handleClient(client, hwid, tunnelDomain, protectSocket, logger)
+                        handleClient(client, hwid, tunnelDomain, cdnProvider, protectSocket, logger)
                         activeSockets.remove(client)
                     }
                 } catch (_: SocketTimeoutException) {
@@ -254,10 +269,11 @@ object BlackTunnelClient {
         client: Socket,
         hwid: String,
         tunnelDomain: String,
+        cdnProvider: String,
         protectSocket: (Socket) -> Unit,
         logger: (String) -> Unit
     ) {
-        val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, protectSocket, logger)
+        val (tunnelSocket, headers) = openChannel("tunnel", hwid, tunnelDomain, cdnProvider, protectSocket, logger)
         if (tunnelSocket == null || headers["x-status"] != "OK") {
             logger("WARN canal túnel rechazado o sin respuesta")
             closeQuietly(client)
@@ -303,12 +319,15 @@ object BlackTunnelClient {
         action: String,
         hwid: String,
         tunnelDomain: String,
+        cdnProvider: String,
         protectSocket: ((Socket) -> Unit)?,
         logger: ((String) -> Unit)?
     ): Pair<Socket?, Map<String, String>> {
+        val cdn = resolveCdnConfig(cdnProvider)
         val p2 = (
             "- / HTTP/1.1\r\n" +
                 "Host: $tunnelDomain\r\n" +
+                "X-CDN: ${cdn.provider}\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Action: $action\r\n" +
                 "Auth: $hwid\r\n\r\n"
@@ -316,26 +335,27 @@ object BlackTunnelClient {
 
         // Método principal: IPv6 estática con payload principal/secundario.
         repeat(CHANNEL_CONNECT_RETRIES) { attempt ->
-            buildPayloadVariants().forEach { payload ->
+            buildPayloadVariants(cdn).forEach { payload ->
                 connectAndSend(
-                    address = InetSocketAddress(Inet6Address.getByName(PROXY_IPV6), PROXY_PORT),
+                    address = cdn.staticIpv6?.let { InetSocketAddress(Inet6Address.getByName(it), PROXY_PORT) }
+                        ?: return@forEach,
                     p1 = payload,
                     p2 = p2,
                     protectSocket = protectSocket,
                     logger = logger
-                ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, logger) }
+                ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, cdn.provider, logger) }
             }
 
             // Método secundario: IPv6 dinámicas por feedback (cache) + DNS del host señuelo/túnel.
-            resolveDynamicIpv6Candidates(tunnelDomain).forEach { ip6 ->
-                buildPayloadVariants().forEach { payload ->
+            resolveDynamicIpv6Candidates(tunnelDomain, cdn).forEach { ip6 ->
+                buildPayloadVariants(cdn).forEach { payload ->
                     connectAndSend(
                         address = InetSocketAddress(ip6, PROXY_PORT),
                         p1 = payload,
                         p2 = p2,
                         protectSocket = protectSocket,
                         logger = logger
-                    ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, logger) }
+                    ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, cdn.provider, logger) }
                 }
             }
 
@@ -350,7 +370,7 @@ object BlackTunnelClient {
                     p2 = p2,
                     protectSocket = protectSocket,
                     logger = logger
-                ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, logger) }
+                ).let { if (it.first != null) return rememberSuccessfulEndpoint(it, tunnelDomain, cdn.provider, logger) }
             }
 
             if (attempt < CHANNEL_CONNECT_RETRIES - 1) {
@@ -434,23 +454,46 @@ object BlackTunnelClient {
         return headers to parts.size
     }
 
-    private fun buildPayloadVariants(): List<ByteArray?> {
-        val primary = ("GET / HTTP/1.1\r\nHost: $PROXY_HOST\r\n\r\n").toByteArray()
-        val secondary = ("HEAD / HTTP/1.1\r\nHost: $PROXY_HOST\r\nConnection: keep-alive\r\n\r\n").toByteArray()
-        return listOf(primary, secondary)
+    private fun buildPayloadVariants(cdn: CdnConfig): List<ByteArray?> {
+        return if (cdn.provider == "cloudfront") {
+            val p1 = (
+                "HEAD / HTTP/1.1\r\n" +
+                    "Host: $CLOUDFRONT_BAIT_HOST\r\n\r\n"
+                ).toByteArray()
+            val p2 = (
+                "\nPATCHS http://$CLOUDFRONT_BAIT_HOST HTTP/1.1\r\n" +
+                    "Host: $CLOUDFRONT_BAIT_HOST\r\n\r\n" +
+                    "GET http://${CENTRAL_HOST} HTTP/1.1\r\n" +
+                    "Host: ${cdn.cloudfrontFakeHost ?: CLOUDFRONT_FAKE_HOST}\r\n" +
+                    "Upgrade: websocket\r\n" +
+                    "Connection: Upgrade\r\n\r\n"
+                ).toByteArray()
+            listOf(p1, p2)
+        } else {
+            val host = cdn.payloadHosts.firstOrNull().orEmpty()
+            val primary = ("GET / HTTP/1.1\r\nHost: $host\r\n\r\n").toByteArray()
+            val secondary = ("HEAD / HTTP/1.1\r\nHost: $host\r\nConnection: keep-alive\r\n\r\n").toByteArray()
+            listOf(primary, secondary)
+        }
     }
 
-    private fun resolveDynamicIpv6Candidates(tunnelDomain: String): List<Inet6Address> {
+    private fun resolveDynamicIpv6Candidates(tunnelDomain: String, cdn: CdnConfig): List<Inet6Address> {
         val ordered = LinkedHashSet<String>()
         synchronized(ipv6FeedbackLock) {
-            if (lastGoodIpv6Literal.isNotBlank() && (lastGoodDomainHint.isBlank() || lastGoodDomainHint == tunnelDomain)) {
+            if (lastGoodIpv6Literal.isNotBlank() &&
+                (lastGoodDomainHint.isBlank() || lastGoodDomainHint == tunnelDomain) &&
+                lastGoodProviderHint == cdn.provider &&
+                (System.currentTimeMillis() - lastGoodAtMs) <= GOOD_IPV6_TTL_MS
+            ) {
                 ordered += lastGoodIpv6Literal
             }
         }
 
-        runCatching { InetAddress.getAllByName(PROXY_HOST).filterIsInstance<Inet6Address>() }
-            .getOrDefault(emptyList())
-            .forEach { ordered += it.hostAddress.orEmpty() }
+        cdn.dynamicResolveHosts.forEach { host ->
+            runCatching { InetAddress.getAllByName(host).filterIsInstance<Inet6Address>() }
+                .getOrDefault(emptyList())
+                .forEach { ordered += it.hostAddress.orEmpty() }
+        }
 
         runCatching { InetAddress.getAllByName(tunnelDomain).filterIsInstance<Inet6Address>() }
             .getOrDefault(emptyList())
@@ -464,18 +507,45 @@ object BlackTunnelClient {
     private fun rememberSuccessfulEndpoint(
         result: Pair<Socket?, Map<String, String>>,
         tunnelDomain: String,
+        cdnProvider: String,
         logger: ((String) -> Unit)?
     ): Pair<Socket?, Map<String, String>> {
         val socket = result.first ?: return result
         val remote = socket.inetAddress
         if (remote is Inet6Address) {
-            synchronized(ipv6FeedbackLock) {
-                lastGoodIpv6Literal = remote.hostAddress.orEmpty()
-                lastGoodDomainHint = tunnelDomain
-            }
+            rememberGoodIpv6(remote.hostAddress.orEmpty(), tunnelDomain, cdnProvider)
             logger?.invoke("Canal OK via IPv6 dinámica: ${remote.hostAddress}")
         }
         return result
+    }
+
+    private fun resolveCdnConfig(cdnProvider: String): CdnConfig {
+        return if (cdnProvider.trim().lowercase() == "cloudflare") {
+            CdnConfig(
+                provider = "cloudflare",
+                staticIpv6 = CLOUDFLARE_PROXY_IPV6,
+                payloadHosts = listOf(CLOUDFLARE_PROXY_HOST),
+                dynamicResolveHosts = listOf(CLOUDFLARE_PROXY_HOST)
+            )
+        } else {
+            CdnConfig(
+                provider = "cloudfront",
+                staticIpv6 = null,
+                payloadHosts = listOf(CLOUDFRONT_BAIT_HOST),
+                dynamicResolveHosts = listOf(CLOUDFRONT_BAIT_HOST),
+                cloudfrontFakeHost = CLOUDFRONT_FAKE_HOST
+            )
+        }
+    }
+
+    private fun rememberGoodIpv6(ipv6: String, domainHint: String, provider: String) {
+        if (ipv6.isBlank()) return
+        synchronized(ipv6FeedbackLock) {
+            lastGoodIpv6Literal = ipv6
+            lastGoodDomainHint = domainHint
+            lastGoodProviderHint = provider
+            lastGoodAtMs = System.currentTimeMillis()
+        }
     }
 
     fun getTrafficSnapshot(): TrafficSnapshot {
@@ -495,9 +565,12 @@ object BlackTunnelClient {
     }
 
     private const val CHANNEL_CONNECT_RETRIES = 3
+    private const val GOOD_IPV6_TTL_MS = 2 * 60 * 1000L
     private val uplinkBytes = AtomicLong(0)
     private val downlinkBytes = AtomicLong(0)
     private val ipv6FeedbackLock = Any()
     private var lastGoodIpv6Literal: String = ""
     private var lastGoodDomainHint: String = ""
+    private var lastGoodProviderHint: String = ""
+    private var lastGoodAtMs: Long = 0L
 }

@@ -16,6 +16,7 @@ object AppSettings {
     private const val KEY_ACCOUNT_SUMMARY = "account_summary"
     private const val KEY_ACCOUNT_EXPIRE_EPOCH_DAY = "account_expire_epoch_day"
     private const val KEY_SERVER_LIST = "server_list"
+    private const val KEY_CDN_PROVIDER = "cdn_provider"
 
     private const val DEFAULT_TUN_STACK = "gvisor"
     private const val DEFAULT_SMUX_MAX_STREAMS = 5000
@@ -23,6 +24,7 @@ object AppSettings {
     private const val DEFAULT_CUSTOM_MUX_MAX_STREAMS = 5000
     private const val DEFAULT_MUX_PROTOCOL = "smux"
     private const val DEFAULT_PERFORMANCE_PROFILE = "normal"
+    private const val DEFAULT_CDN_PROVIDER = "cloudfront"
 
     fun getTunnelDomain(context: Context): String {
         val explicit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -30,7 +32,7 @@ object AppSettings {
             ?.trim()
             .orEmpty()
         if (explicit.isNotBlank()) return explicit
-        return getServerList(context).firstOrNull()?.host.orEmpty()
+        return getServerList(context, getCdnProvider(context)).firstOrNull()?.host.orEmpty()
     }
 
     fun setTunnelDomain(context: Context, domain: String) {
@@ -46,14 +48,14 @@ object AppSettings {
             ?.trim()
             .orEmpty()
         return when (value.lowercase()) {
-            "system", "gvisor", "mixed" -> value.lowercase()
+            "system", "gvisor" -> value.lowercase()
             else -> DEFAULT_TUN_STACK
         }
     }
 
     fun setTunStack(context: Context, stack: String) {
         val normalized = when (stack.trim().lowercase()) {
-            "system", "gvisor", "mixed" -> stack.trim().lowercase()
+            "system", "gvisor" -> stack.trim().lowercase()
             else -> DEFAULT_TUN_STACK
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -157,16 +159,57 @@ object AppSettings {
 
 
     fun getGamerTargetPackage(context: Context): String {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_GAMER_TARGET_PACKAGE, "")
-            ?.trim()
-            .orEmpty()
+        return getGamerTargetPackages(context).firstOrNull().orEmpty()
     }
 
     fun setGamerTargetPackage(context: Context, packageName: String) {
+        setGamerTargetPackages(context, listOf(packageName))
+    }
+
+    fun getGamerTargetPackages(context: Context): List<String> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_GAMER_TARGET_PACKAGE, "")
+            .orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.split(',')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    fun setGamerTargetPackages(context: Context, packageNames: List<String>) {
+        val raw = packageNames
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(",")
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_GAMER_TARGET_PACKAGE, packageName.trim())
+            .putString(KEY_GAMER_TARGET_PACKAGE, raw)
+            .apply()
+    }
+
+    fun getCdnProvider(context: Context): String {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CDN_PROVIDER, DEFAULT_CDN_PROVIDER)
+            ?.trim()
+            ?.lowercase()
+            .orEmpty()
+        return when (value) {
+            "cloudflare", "cloudfront" -> value
+            else -> DEFAULT_CDN_PROVIDER
+        }
+    }
+
+    fun setCdnProvider(context: Context, provider: String) {
+        val normalized = when (provider.trim().lowercase()) {
+            "cloudflare", "cloudfront" -> provider.trim().lowercase()
+            else -> DEFAULT_CDN_PROVIDER
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CDN_PROVIDER, normalized)
             .apply()
     }
 
@@ -208,9 +251,11 @@ object AppSettings {
 
     data class SavedServer(val host: String, val region: String, val status: String)
 
-    fun getServerList(context: Context): List<SavedServer> {
+    fun getServerList(context: Context, cdnProvider: String = getCdnProvider(context)): List<SavedServer> {
+        val provider = cdnProvider.trim().lowercase().ifBlank { DEFAULT_CDN_PROVIDER }
+        val key = "${KEY_SERVER_LIST}_${provider}"
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_SERVER_LIST, "")
+            .getString(key, "")
             .orEmpty()
         if (raw.isBlank()) return emptyList()
         return raw.split("\n").mapNotNull { line ->
@@ -219,16 +264,17 @@ object AppSettings {
         }
     }
 
-    fun setServerList(context: Context, servers: List<SavedServer>) {
+    fun setServerList(context: Context, servers: List<SavedServer>, cdnProvider: String = getCdnProvider(context)) {
         val normalized = linkedMapOf<String, SavedServer>()
         servers.forEach { s ->
             val host = s.host.trim().lowercase()
             if (host.isNotBlank()) normalized[host] = SavedServer(host, s.region.trim(), s.status.trim().lowercase())
         }
         val raw = normalized.values.joinToString("\n") { "${it.host}|${it.region}|${it.status}" }
+        val key = "${KEY_SERVER_LIST}_${cdnProvider.trim().lowercase().ifBlank { DEFAULT_CDN_PROVIDER }}"
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_SERVER_LIST, raw)
+            .putString(key, raw)
             .apply()
     }
 }

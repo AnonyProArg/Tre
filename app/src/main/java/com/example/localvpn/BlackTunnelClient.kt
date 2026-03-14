@@ -9,6 +9,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.nio.charset.StandardCharsets
 import java.util.Collections
 import java.util.LinkedHashSet
 import java.util.UUID
@@ -214,16 +215,43 @@ object BlackTunnelClient {
         protectSocket: (Socket) -> Unit,
         logger: (String) -> Unit
     ): ProxyHandle {
+        return startLocalProxy(
+            localPort = LOCAL_PORT,
+            logger = logger
+        ) { client ->
+            handleClient(client, hwid, tunnelDomain, protectSocket, logger)
+        }
+    }
+
+    fun startCustomProxy(
+        config: AppSettings.CustomTunnelConfig,
+        protectSocket: (Socket) -> Unit,
+        logger: (String) -> Unit
+    ): ProxyHandle {
+        val port = config.proxyPort.coerceIn(1, 65535)
+        return startLocalProxy(
+            localPort = port,
+            logger = logger
+        ) { client ->
+            handleCustomClient(client, config, protectSocket, logger)
+        }
+    }
+
+    private fun startLocalProxy(
+        localPort: Int,
+        logger: (String) -> Unit,
+        onClient: (Socket) -> Unit
+    ): ProxyHandle {
         resetTrafficCounters()
         val stopFlag = AtomicBoolean(false)
         val activeSockets = Collections.synchronizedSet(mutableSetOf<Socket>())
         val server = ServerSocket().apply {
             reuseAddress = true
-            bind(InetSocketAddress(LOCAL_HOST, LOCAL_PORT))
+            bind(InetSocketAddress(LOCAL_HOST, localPort))
             soTimeout = 1_000
         }
 
-        logger("Proxy local en $LOCAL_HOST:$LOCAL_PORT dominio=$tunnelDomain")
+        logger("Proxy local en $LOCAL_HOST:$localPort")
 
         thread(name = "bt-proxy-accept", isDaemon = true) {
             while (!stopFlag.get()) {
@@ -234,10 +262,9 @@ object BlackTunnelClient {
                         receiveBufferSize = 256 * 1024
                         sendBufferSize = 256 * 1024
                     }
-                    runCatching { protectSocket(client) }
                     activeSockets.add(client)
                     thread(name = "bt-proxy-client", isDaemon = true) {
-                        handleClient(client, hwid, tunnelDomain, protectSocket, logger)
+                        onClient(client)
                         activeSockets.remove(client)
                     }
                 } catch (_: SocketTimeoutException) {
@@ -278,6 +305,87 @@ object BlackTunnelClient {
         done.await()
         closeQuietly(client)
         closeQuietly(tunnelSocket)
+    }
+
+    private fun handleCustomClient(
+        client: Socket,
+        config: AppSettings.CustomTunnelConfig,
+        protectSocket: (Socket) -> Unit,
+        logger: (String) -> Unit
+    ) {
+        val remote = Socket()
+        try {
+            remote.tcpNoDelay = true
+            remote.keepAlive = true
+            remote.receiveBufferSize = 256 * 1024
+            remote.sendBufferSize = 256 * 1024
+            runCatching { protectSocket(remote) }
+            remote.connect(InetSocketAddress(config.server, config.port), 12_000)
+            remote.soTimeout = 1_200
+
+            val payload1 = normalizePayload(config.payload1)
+            val payload2 = normalizePayload(config.payload2)
+            val out = remote.getOutputStream()
+            if (payload1.isNotEmpty()) {
+                out.write(payload1)
+                logger("Custom proxy -> payload1 enviado (${payload1.size} bytes)")
+            }
+            if (payload2.isNotEmpty()) {
+                out.write(payload2)
+                logger("Custom proxy -> payload2 enviado (${payload2.size} bytes)")
+            }
+            out.flush()
+
+            val warmup = readAvailable(remote)
+            if (warmup.isNotEmpty()) {
+                client.getOutputStream().write(warmup)
+                client.getOutputStream().flush()
+                logger("Custom proxy <- respuesta inicial (${warmup.size} bytes)")
+            }
+        } catch (e: Exception) {
+            logger("WARN custom proxy connect error: ${e.message}")
+            closeQuietly(client)
+            closeQuietly(remote)
+            return
+        }
+
+        val done = CountDownLatch(2)
+        thread(name = "bt-relay-up-custom", isDaemon = true) {
+            relayOneWay(client, remote, isUplink = true)
+            done.countDown()
+        }
+        thread(name = "bt-relay-down-custom", isDaemon = true) {
+            relayOneWay(remote, client, isUplink = false)
+            done.countDown()
+        }
+
+        done.await()
+        closeQuietly(client)
+        closeQuietly(remote)
+    }
+
+    private fun normalizePayload(raw: String): ByteArray {
+        val normalized = raw
+            .replace("\\r", "\r")
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+        return normalized.toByteArray(StandardCharsets.UTF_8)
+    }
+    private fun readAvailable(socket: Socket): ByteArray {
+        return try {
+            val input = socket.getInputStream()
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                out.write(buffer, 0, read)
+                if (input.available() <= 0) break
+            }
+            out.toByteArray()
+        } catch (_: Exception) {
+            ByteArray(0)
+        }
     }
 
     private fun relayOneWay(src: Socket, dst: Socket, isUplink: Boolean) {

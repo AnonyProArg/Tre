@@ -85,13 +85,17 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             }
 
             proxyHandle = if (performanceProfile == "custom_tunnel" && customTunnelConfig.enabled) {
-                null
+                BlackTunnelClient.startCustomProxy(
+                    config = customTunnelConfig,
+                    protectSocket = { socket -> protect(socket) },
+                    logger = { emitLog(it) }
+                )
             } else {
                 BlackTunnelClient.startProxy(
                     hwid = hwid,
                     tunnelDomain = tunnelDomain,
                     protectSocket = { socket -> protect(socket) },
-                    logger = {}
+                    logger = { emitLog(it) }
                 )
             }
 
@@ -438,16 +442,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private fun buildClientConfigJson(tunnelDomain: String, tunStack: String, muxProtocol: String, smuxMaxStreams: Int, custom: AppSettings.CustomTunnelConfig): String {
         val useCustomTunnel = performanceProfile == "custom_tunnel" && custom.enabled && custom.server.isNotBlank() && custom.uuid.isNotBlank()
-        val outboundServer = if (useCustomTunnel) custom.server else "127.0.0.1"
-        val outboundPort = if (useCustomTunnel) custom.port else BlackTunnelClient.LOCAL_PORT
-        val outboundUuid = if (useCustomTunnel) custom.uuid else "11111111-1111-1111-1111-111111111111"
-        val tlsBlock = if (useCustomTunnel && custom.sni.isNotBlank()) {
-            """,
-                  "tls": {
-                    "enabled": true,
-                    "server_name": "${custom.sni}"
-                  }"""
-        } else ""
+        val localProxyPort = if (useCustomTunnel) custom.proxyPort.coerceIn(1, 65535) else BlackTunnelClient.LOCAL_PORT
 
         return """
             {
@@ -468,9 +463,9 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 {
                   "type": "vless",
                   "tag": "proxy",
-                  "server": "${outboundServer}",
-                  "server_port": ${outboundPort},
-                  "uuid": "${outboundUuid}",
+                  "server": "127.0.0.1",
+                  "server_port": ${localProxyPort},
+                  "uuid": "11111111-1111-1111-1111-111111111111",
                   "flow": "",
                   "multiplex": {
                     "enabled": true,
@@ -478,7 +473,7 @@ class LocalVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     "max_streams": ${smuxMaxStreams}
                   },
                   "packet_encoding": "xudp",
-                  "network_strategy": "default"${tlsBlock}
+                  "network_strategy": "default"
                 },
                 { "type": "direct", "tag": "direct" },
                 { "type": "block",  "tag": "block" }
